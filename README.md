@@ -1,3 +1,0 @@
-# Rescue Wave Project
-
-daniel
