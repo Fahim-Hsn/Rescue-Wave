@@ -1,227 +1,124 @@
-import { BrowserWindow, ipcMain } from 'electron'
-import { SerialPort } from 'serialport'
-import { ReadlineParser } from '@serialport/parser-readline'
-import {
-  ConnectionStatus,
-  GatewayNodePayload,
-  SerialPortSummary,
-  parseGatewayLine
-} from '../shared/gateway-node'
-
-const BAUD_RATE = 115200
-const RECONNECT_DELAY_MS = 3000
-
-const IPC = {
-  LIST_PORTS: 'serial:list-ports',
-  CONNECT: 'serial:connect',
-  DISCONNECT: 'serial:disconnect',
-  NODE_DATA: 'gateway:node-data',
-  CONNECTION_STATUS: 'gateway:connection-status',
-  PORTS_UPDATED: 'serial:ports-updated'
-} as const
+// File Location: OfflineApp/src/main/serial-manager.ts
+import { SerialPort } from 'serialport';
+import { ReadlineParser } from '@serialport/parser-readline';
+import { BrowserWindow, ipcMain } from 'electron';
+import { parseGatewayLine } from '../shared/gateway-node';
 
 class SerialManager {
-  private port: SerialPort | null = null
-  private activePath: string | null = null
-  private reconnectTimer: NodeJS.Timeout | null = null
-  private shouldReconnect = false
-  private manualDisconnect = false
+  private port: SerialPort | null = null;
+  private parser: ReadlineParser | null = null;
+  private verificationTimeout: NodeJS.Timeout | null = null;
+  private pingInterval: NodeJS.Timeout | null = null;
 
-  registerIpcHandlers(): void {
-    ipcMain.handle(IPC.LIST_PORTS, () => this.listPorts())
-    ipcMain.handle(IPC.CONNECT, (_event, portPath: string) => this.connect(portPath))
-    ipcMain.handle(IPC.DISCONNECT, () => {
-      this.manualDisconnect = true
-      this.shouldReconnect = false
-      this.clearReconnectTimer()
-      this.closePort()
-      this.broadcastStatus({ state: 'disconnected' })
-      return { success: true }
-    })
+  public registerIpcHandlers() {
+    ipcMain.handle('get-ports', async () => {
+      const ports = await SerialPort.list();
+      return ports.map(p => p.path);
+    });
+
+    ipcMain.handle('connect-port', async (_event, portPath: string) => {
+      return this.connect(portPath);
+    });
+
+    ipcMain.handle('disconnect-port', async () => {
+      return this.disconnect();
+    });
   }
 
-  async start(): Promise<void> {
-    const ports = await this.listPorts()
-    this.broadcast(IPC.PORTS_UPDATED, ports)
+  public connect(portPath: string): boolean {
+    const mainWindow = BrowserWindow.getAllWindows()[0];
 
-    const espPort = this.pickEsp32Port(ports)
-    if (espPort) {
-      await this.connect(espPort.path)
+    if (this.port?.isOpen) {
+      this.disconnect();
     }
-  }
-
-  dispose(): void {
-    this.manualDisconnect = true
-    this.shouldReconnect = false
-    this.clearReconnectTimer()
-    this.closePort()
-    ipcMain.removeHandler(IPC.LIST_PORTS)
-    ipcMain.removeHandler(IPC.CONNECT)
-    ipcMain.removeHandler(IPC.DISCONNECT)
-  }
-
-  private async listPorts(): Promise<SerialPortSummary[]> {
-    const ports = await SerialPort.list()
-    return ports.map((port) => ({
-      path: port.path,
-      manufacturer: port.manufacturer,
-      serialNumber: port.serialNumber,
-      vendorId: port.vendorId,
-      productId: port.productId
-    }))
-  }
-
-  private pickEsp32Port(ports: SerialPortSummary[]): SerialPortSummary | undefined {
-    if (ports.length === 0) return undefined
-
-    const espLike = ports.find((port) => {
-      const manufacturer = port.manufacturer?.toLowerCase() ?? ''
-      return (
-        manufacturer.includes('silicon labs') ||
-        manufacturer.includes('espressif') ||
-        manufacturer.includes('usb-serial') ||
-        manufacturer.includes('ch340') ||
-        manufacturer.includes('cp210')
-      )
-    })
-
-    return espLike ?? ports[0]
-  }
-
-  private async connect(portPath: string): Promise<{ success: boolean; message?: string }> {
-    if (!portPath) {
-      return { success: false, message: 'No port path provided.' }
-    }
-
-    if (this.port?.isOpen && this.activePath === portPath) {
-      return { success: true }
-    }
-
-    this.manualDisconnect = false
-    this.shouldReconnect = true
-    this.clearReconnectTimer()
-    this.closePort()
-
-    this.broadcastStatus({ state: 'connecting', port: portPath })
 
     try {
-      const port = new SerialPort({
-        path: portPath,
-        baudRate: BAUD_RATE,
-        autoOpen: false
-      })
+      this.port = new SerialPort({ path: portPath, baudRate: 115200 });
+      this.parser = this.port.pipe(new ReadlineParser({ delimiter: '\n' }));
 
-      await new Promise<void>((resolve, reject) => {
-        port.open((error) => {
-          if (error) reject(error)
-          else resolve()
-        })
-      })
+      this.port.on('open', () => {
+        console.log(`Port ${portPath} opened. Initiating handshake sequence...`);
+        
+        // Retrying ping every 500ms because ESP32 reboots upon serial connection
+        this.pingInterval = setInterval(() => {
+          if (this.port && this.port.isOpen) {
+            this.port.write("GATEWAY_PING\n");
+          }
+        }, 500);
 
-      const parser = port.pipe(new ReadlineParser({ delimiter: '\n' }))
+        // Fail connection if device fails to respond within 4 seconds
+        this.verificationTimeout = setTimeout(() => {
+          if (this.pingInterval) clearInterval(this.pingInterval);
+          console.log("Handshake timeout. Invalid peripheral.");
+          if (mainWindow) mainWindow.webContents.send('port-status', 'error');
+          this.disconnect();
+        }, 4000);
+      });
 
-      parser.on('data', (line: string) => {
-        this.handleIncomingLine(line)
-      })
+      this.parser.on('data', (line: string) => {
+        line = line.trim();
+        
+        // Listen to explicit authentication acknowledgements
+        if (line === "GATEWAY_PONG") {
+          if (this.verificationTimeout) clearTimeout(this.verificationTimeout);
+          if (this.pingInterval) clearInterval(this.pingInterval);
+          if (mainWindow) mainWindow.webContents.send('port-status', 'connected');
+          console.log("RescueWave Gateway verified successfully.");
+          return;
+        }
 
-      port.on('close', () => {
-        this.handlePortClosed()
-      })
+        if (line === "GATEWAY_ACK_DISCONNECT") {
+          return;
+        }
 
-      port.on('error', (error) => {
-        console.error('[SerialManager] Port error:', error.message)
-        this.broadcastStatus({
-          state: 'error',
-          message: error.message,
-          port: this.activePath ?? portPath
-        })
-      })
+        // Forward legitimate telemetry payloads to Renderer process
+        const parsedData = parseGatewayLine(line);
+        if (parsedData && mainWindow) {
+          mainWindow.webContents.send('serial-data', parsedData);
+        }
+      });
 
-      this.port = port
-      this.activePath = portPath
+      this.port.on('error', (err) => {
+        console.error("Serial Port Error:", err.message);
+        if (mainWindow) mainWindow.webContents.send('port-status', 'error');
+      });
 
-      this.broadcastStatus({ state: 'connected', port: portPath })
-      return { success: true }
+      this.port.on('close', () => {
+        if (mainWindow) mainWindow.webContents.send('port-status', 'disconnected');
+      });
+
+      return true;
     } catch (error) {
-      const message = error instanceof Error ? error.message : 'Failed to open serial port.'
-      this.broadcastStatus({ state: 'error', message, port: portPath })
-      this.scheduleReconnect(portPath)
-      return { success: false, message }
+      console.error("Connection instance generation failed:", error);
+      return false;
     }
   }
 
-  private handleIncomingLine(line: string): void {
-    const payload = parseGatewayLine(line)
-    if (!payload) {
-      console.warn('[SerialManager] Ignored malformed line:', line)
-      return
+  public disconnect(): boolean {
+    const mainWindow = BrowserWindow.getAllWindows()[0];
+    if (this.verificationTimeout) clearTimeout(this.verificationTimeout);
+    if (this.pingInterval) clearInterval(this.pingInterval);
+    
+    if (this.port && this.port.isOpen) {
+      this.port.write("GATEWAY_DISCONNECT\n", () => {
+        this.port?.close(() => {
+          this.port = null;
+          this.parser = null;
+          if (mainWindow) mainWindow.webContents.send('port-status', 'disconnected');
+        });
+      });
+      return true;
     }
-
-    this.broadcast(IPC.NODE_DATA, payload satisfies GatewayNodePayload)
+    return false;
   }
 
-  private handlePortClosed(): void {
-    const closedPort = this.activePath
-    this.port = null
-    this.activePath = null
-
-    if (this.manualDisconnect) {
-      this.broadcastStatus({ state: 'disconnected' })
-      return
-    }
-
-    this.broadcastStatus({
-      state: 'error',
-      message: 'Serial port disconnected.',
-      port: closedPort ?? undefined
-    })
-
-    if (this.shouldReconnect && closedPort) {
-      this.scheduleReconnect(closedPort)
-    } else {
-      this.broadcastStatus({ state: 'disconnected' })
-    }
+  public async start() {
+    console.log("Serial Manager Pipeline Initialized.");
   }
 
-  private scheduleReconnect(portPath: string): void {
-    this.clearReconnectTimer()
-    this.reconnectTimer = setTimeout(() => {
-      if (this.shouldReconnect && !this.manualDisconnect) {
-        void this.connect(portPath)
-      }
-    }, RECONNECT_DELAY_MS)
-  }
-
-  private clearReconnectTimer(): void {
-    if (this.reconnectTimer) {
-      clearTimeout(this.reconnectTimer)
-      this.reconnectTimer = null
-    }
-  }
-
-  private closePort(): void {
-    if (!this.port) return
-
-    const portToClose = this.port
-    this.port = null
-    this.activePath = null
-
-    if (portToClose.isOpen) {
-      portToClose.close()
-    }
-  }
-
-  private broadcastStatus(status: ConnectionStatus): void {
-    this.broadcast(IPC.CONNECTION_STATUS, status)
-  }
-
-  private broadcast(channel: string, payload: unknown): void {
-    for (const window of BrowserWindow.getAllWindows()) {
-      if (!window.isDestroyed()) {
-        window.webContents.send(channel, payload)
-      }
-    }
+  public dispose() {
+    this.disconnect();
   }
 }
 
-export const serialManager = new SerialManager()
+export const serialManager = new SerialManager();

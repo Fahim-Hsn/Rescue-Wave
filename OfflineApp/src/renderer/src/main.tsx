@@ -1,3 +1,4 @@
+// File Location: OfflineApp/src/renderer/src/main.tsx
 import './assets/main.css'
 import React from 'react'
 import ReactDOM from 'react-dom/client'

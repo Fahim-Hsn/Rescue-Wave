@@ -1,159 +1,137 @@
-import { useEffect, useState } from 'react'
-import L from 'leaflet'
-import { MapContainer, Marker, Popup, TileLayer, useMap } from 'react-leaflet'
-import type { GatewayNodePayload } from '../../../shared/gateway-node'
-import 'leaflet/dist/leaflet.css'
+// File Location: OfflineApp/src/renderer/src/components/MapComponent.tsx
+import React, { useEffect } from 'react';
+import { MapContainer, TileLayer, Marker, Popup, useMap, LayersControl } from 'react-leaflet';
+import L from 'leaflet';
 
-const BAIUST_CENTER: L.LatLngExpression = [23.4567, 91.1234]
-const DEFAULT_ZOOM = 16
+import { NodeTelemetry } from '../../shared/gateway-node';
+import icon from 'leaflet/dist/images/marker-icon.png';
+import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 
-interface MapComponentProps {
-  nodes: GatewayNodePayload[]
-  selectedNodeId: string | null
-  onSelectNode?: (nodeId: string) => void
-}
+// Default Icon (For safe remote nodes)
+const DefaultIcon = L.icon({
+  iconUrl: icon,
+  shadowUrl: iconShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+});
 
-function createNodeIcon(isSos: boolean, isSelected: boolean): L.DivIcon {
-  const color = isSos ? '#dc2626' : '#3a9874'
-  const ring = isSelected ? '0 0 0 3px rgba(255,255,255,0.9), 0 0 16px rgba(58,152,116,0.8)' : '0 2px 8px rgba(0,0,0,0.45)'
-  const pulse = isSos ? 'animation: sos-pulse 1.2s ease-in-out infinite;' : ''
+// SOS Icon (Red color for danger alerts)
+const SOSIcon = L.icon({
+  iconUrl: icon,
+  shadowUrl: iconShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  className: 'hue-rotate-[150deg] brightness-90', 
+});
 
-  return L.divIcon({
-    className: '',
-    html: `
-      <div style="
-        width: 28px;
-        height: 28px;
-        border-radius: 50% 50% 50% 0;
-        background: ${color};
-        transform: rotate(-45deg);
-        border: 2px solid white;
-        box-shadow: ${ring};
-        ${pulse}
-      ">
-        <div style="
-          width: 8px;
-          height: 8px;
-          background: white;
-          border-radius: 50%;
-          position: absolute;
-          top: 50%;
-          left: 50%;
-          transform: translate(-50%, -50%) rotate(45deg);
-        "></div>
-      </div>
-    `,
-    iconSize: [28, 28],
-    iconAnchor: [14, 28],
-    popupAnchor: [0, -30]
-  })
-}
+// Gateway Icon (Deep purple/blue icon for BAIUST Base)
+const GatewayIcon = L.icon({
+  iconUrl: icon,
+  shadowUrl: iconShadow,
+  iconSize: [35, 51],
+  iconAnchor: [17, 51],
+  popupAnchor: [1, -40],
+  className: 'hue-rotate-[250deg] brightness-75',
+});
 
-function MapFocus({ node }: { node: GatewayNodePayload | null }): null {
-  const map = useMap()
+L.Marker.prototype.options.icon = DefaultIcon;
+
+// Map Controller for Auto-Focus and sizing
+function MapController({ nodes, baseCoords }: { nodes: NodeTelemetry[], baseCoords: [number, number] }) {
+  const map = useMap();
+  
+  useEffect(() => {
+    setTimeout(() => {
+      map.invalidateSize();
+    }, 250);
+  }, [map]);
 
   useEffect(() => {
-    if (node) {
-      map.flyTo([node.latitude, node.longitude], 17, { duration: 0.8 })
+    const sosNode = nodes.find(n => n.sosStatus === 'SOS');
+    if (sosNode) {
+      map.flyTo([sosNode.lat, sosNode.lng], 18, { animate: true, duration: 1.5 });
     }
-  }, [node, map])
+  }, [nodes, map]);
 
-  return null
+  return null;
 }
 
-function MapComponent({ nodes, selectedNodeId, onSelectNode }: MapComponentProps): React.JSX.Element {
-  const [mounted, setMounted] = useState(false)
-  const selectedNode =
-    selectedNodeId != null ? nodes.find((node) => node.nodeId === selectedNodeId) ?? null : null
+interface MapProps {
+  nodes: NodeTelemetry[];
+}
 
-  useEffect(() => {
-    setMounted(true)
-  }, [])
-
-  if (!mounted) {
-    return (
-      <div className="rescue-map flex h-full min-h-[320px] w-full items-center justify-center rounded-2xl border border-white/10 bg-rescue-navy/70">
-        <p className="text-sm text-slate-400">Loading map…</p>
-      </div>
-    )
-  }
-
+export default function MapComponent({ nodes }: MapProps) {
+  // Exact Coordinates for BAIUST, Cumilla Cantonment
+  const baiustCoords: [number, number] = [23.4622, 91.1370];
+  
   return (
-    <div className="rescue-map h-full min-h-[320px] w-full overflow-hidden rounded-2xl border border-white/10 shadow-2xl">
-      <MapContainer
-        center={BAIUST_CENTER}
-        zoom={DEFAULT_ZOOM}
-        className="h-full w-full"
-        scrollWheelZoom
-        zoomControl
+    <div className="rounded-2xl overflow-hidden border border-slate-200 shadow-sm relative z-0" style={{ height: '450px', width: '100%' }}>
+      <MapContainer 
+        center={baiustCoords} 
+        zoom={16} 
+        style={{ height: '100%', width: '100%', zIndex: 0 }}
       >
-        <TileLayer
-          url="/map-tiles/{z}/{x}/{y}.png"
-          attribution="RescueWave Offline Map"
-          maxZoom={18}
-          minZoom={14}
-        />
+        <MapController nodes={nodes} baseCoords={baiustCoords} />
+        
+        {/* --- DUAL MAP CONTROL (Satellite & Road View) --- */}
+        <LayersControl position="topright">
+          
+          {/* 1. Road View (Standard Map) */}
+          <LayersControl.BaseLayer name="🛣️ Road View">
+            <TileLayer
+              attribution='&copy; Google Maps Road'
+              url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
+            />
+          </LayersControl.BaseLayer>
 
-        <Marker position={BAIUST_CENTER} icon={createCampusIcon()}>
-          <Popup>
-            <strong>BAIUST Campus</strong>
-            <br />
-            Command center · 23.4567, 91.1234
+          {/* 2. Satellite View (Set as Default Checked) */}
+          <LayersControl.BaseLayer checked name="🛰️ Satellite View">
+            <TileLayer
+              attribution='&copy; Google Maps Satellite'
+              url="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
+            />
+          </LayersControl.BaseLayer>
+
+        </LayersControl>
+
+        {/* --- PERMANENT BAIUST HQ PIN --- */}
+        <Marker position={baiustCoords} icon={GatewayIcon} zIndexOffset={1000}>
+          <Popup className="rounded-xl font-sans min-w-[200px]">
+            <div className="text-center p-1">
+              <strong className="text-indigo-950 block text-xs mb-1 uppercase leading-tight">
+                Bangladesh Army International University of Science & Technology
+              </strong>
+              <span className="px-2 py-0.5 rounded text-[10px] font-bold bg-indigo-100 text-indigo-700 mt-1 inline-block">
+                BAIUST HQ (GATEWAY)
+              </span>
+            </div>
           </Popup>
         </Marker>
-
-        {nodes.map((node) => {
-          const isSos = node.sosStatus === 'SOS'
-          const isSelected = selectedNodeId === node.nodeId
-
-          return (
-            <Marker
-              key={node.nodeId}
-              position={[node.latitude, node.longitude]}
-              icon={createNodeIcon(isSos, isSelected)}
-              eventHandlers={{
-                click: () => onSelectNode?.(node.nodeId)
-              }}
-            >
-              <Popup>
-                <div className="min-w-[160px] text-sm text-slate-800">
-                  <p className="font-bold">{node.nodeId}</p>
-                  <p className={isSos ? 'font-semibold text-red-600' : 'text-emerald-700'}>
-                    Status: {node.sosStatus}
-                  </p>
-                  <p>Temp: {node.temperature.toFixed(1)}°C</p>
-                  <p>Humidity: {node.humidity.toFixed(0)}%</p>
-                  <p>Water: {node.waterLevel} cm</p>
-                  <p>Motion: {node.radarMotion ? 'Detected' : 'Clear'}</p>
+        
+        {/* --- DYNAMIC SENSOR NODES --- */}
+        {nodes.map((node) => (
+          <Marker 
+            key={node.id} 
+            position={[node.lat, node.lng]}
+            icon={node.sosStatus === 'SOS' ? SOSIcon : DefaultIcon}
+          >
+            <Popup className="rounded-xl font-sans min-w-[150px]">
+              <div className="text-center">
+                <strong className="text-indigo-950 block text-sm mb-1">{node.id}</strong>
+                <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${node.sosStatus === 'SOS' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                  {node.sosStatus === 'SOS' ? 'SOS TRIGGERED' : 'SAFE'}
+                </span>
+                <div className="mt-3 text-xs text-slate-600 text-left bg-slate-50 p-2 rounded border border-slate-100">
+                  <p className="mb-1">Temp: <b className="text-slate-800">{node.temperature}°C</b></p>
+                  <p>Water: <b className="text-slate-800">{node.waterLevel} cm</b></p>
                 </div>
-              </Popup>
-            </Marker>
-          )
-        })}
-
-        <MapFocus node={selectedNode} />
+              </div>
+            </Popup>
+          </Marker>
+        ))}
       </MapContainer>
     </div>
-  )
+  );
 }
-
-function createCampusIcon(): L.DivIcon {
-  return L.divIcon({
-    className: '',
-    html: `
-      <div style="
-        width: 18px;
-        height: 18px;
-        border-radius: 50%;
-        background: #0f172a;
-        border: 3px solid #5eead4;
-        box-shadow: 0 0 12px rgba(94,234,212,0.7);
-      "></div>
-    `,
-    iconSize: [18, 18],
-    iconAnchor: [9, 9],
-    popupAnchor: [0, -12]
-  })
-}
-
-export default MapComponent
