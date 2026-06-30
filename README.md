@@ -1,2 +1,0 @@
-# Rescue Wave Project
-hello
