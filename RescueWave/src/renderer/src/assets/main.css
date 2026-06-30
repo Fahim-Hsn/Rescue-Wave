@@ -1,0 +1,64 @@
+@import 'tailwindcss';
+
+@import 'leaflet/dist/leaflet.css';
+
+@theme {
+  --color-rescue-teal: #3a9874;
+  --color-rescue-navy: #1e293b;
+  --color-rescue-navy-light: #334155;
+  --color-rescue-sos: #dc2626;
+}
+
+html,
+body,
+#root {
+  height: 100%;
+  margin: 0;
+}
+
+body {
+  font-family:
+    'Segoe UI',
+    system-ui,
+    -apple-system,
+    sans-serif;
+  background-color: var(--color-rescue-teal);
+  overflow: hidden;
+}
+
+@keyframes sos-flash {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.35;
+  }
+}
+
+@keyframes marker-blink {
+  0%,
+  100% {
+    transform: scale(1);
+    opacity: 1;
+  }
+  50% {
+    transform: scale(1.25);
+    opacity: 0.6;
+  }
+}
+
+.sos-banner-flash {
+  animation: sos-flash 0.8s ease-in-out infinite;
+}
+
+.sos-marker {
+  animation: marker-blink 1s ease-in-out infinite;
+}
+
+.leaflet-container {
+  height: 100%;
+  width: 100%;
+  border-radius: 0.75rem;
+  z-index: 0;
+}
