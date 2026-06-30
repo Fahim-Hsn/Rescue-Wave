@@ -44,9 +44,4 @@ if (process.contextIsolated) {
   } catch (error) {
     console.error(error)
   }
-} else {
-  // @ts-expect-error legacy fallback
-  window.electron = electronAPI
-  // @ts-expect-error legacy fallback
-  window.rescueWave = rescueWaveAPI
 }

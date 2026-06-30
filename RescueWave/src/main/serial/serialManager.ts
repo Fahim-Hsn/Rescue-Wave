@@ -1,7 +1,7 @@
 import { SerialPort } from 'serialport'
 import { ReadlineParser } from '@serialport/parser-readline'
 import { BrowserWindow } from 'electron'
-import type { SerialConnectionStatus, SerialPortInfo } from '../../shared/types'
+import type { NodeTelemetry, SerialConnectionStatus, SerialPortInfo } from '../../shared/types'
 import { IPC_CHANNELS } from '../../shared/types'
 import { parseTelemetryLine } from './parser'
 
@@ -11,7 +11,6 @@ const MAX_RECONNECT_ATTEMPTS = 10
 
 export class SerialManager {
   private port: SerialPort | null = null
-  private parser: ReadlineParser | null = null
   private portPath: string | null = null
   private reconnectTimer: ReturnType<typeof setTimeout> | null = null
   private reconnectAttempt = 0
@@ -80,7 +79,6 @@ export class SerialManager {
       port.on('close', () => {
         console.log('[serial] Port closed:', portPath)
         this.port = null
-        this.parser = null
 
         if (!this.intentionalDisconnect && this.portPath) {
           this.scheduleReconnect()
@@ -92,7 +90,6 @@ export class SerialManager {
       port.open((error) => {
         if (error) {
           this.port = null
-          this.parser = null
           this.setStatus({
             state: 'error',
             message: error.message,
@@ -103,7 +100,6 @@ export class SerialManager {
         }
 
         this.port = port
-        this.parser = parser
         this.reconnectAttempt = 0
         this.setStatus({ state: 'connected', portPath })
         resolve()
@@ -145,7 +141,6 @@ export class SerialManager {
   private async closePort(): Promise<void> {
     const port = this.port
     this.port = null
-    this.parser = null
 
     if (!port) return
 
@@ -177,7 +172,7 @@ export class SerialManager {
     }
   }
 
-  private broadcastTelemetry(telemetry: import('../../shared/types').NodeTelemetry): void {
+  private broadcastTelemetry(telemetry: NodeTelemetry): void {
     for (const window of BrowserWindow.getAllWindows()) {
       window.webContents.send(IPC_CHANNELS.TELEMETRY, telemetry)
     }
