@@ -29,6 +29,11 @@ export default function App(): JSX.Element {
   const [currentUser, setCurrentUser] = useState('');
   const [loginError, setLoginError] = useState('');
 
+  // --- DISCONNECT AUTH STATE ---
+  const [showDisconnectAuth, setShowDisconnectAuth] = useState(false);
+  const [disconnectPassword, setDisconnectPassword] = useState('');
+  const [disconnectError, setDisconnectError] = useState('');
+
   // --- DASHBOARD STATE ---
   const [nodes, setNodes] = useState<NodeTelemetry[]>([]);
   const [ports, setPorts] = useState<string[]>([]);
@@ -51,7 +56,6 @@ export default function App(): JSX.Element {
 
   // --- INITIALIZATION & EFFECTS ---
   useEffect(() => {
-    // Load local logs from local storage
     const savedLogs = localStorage.getItem('rescueWaveLogs');
     if (savedLogs) setSystemLogs(JSON.parse(savedLogs));
 
@@ -74,7 +78,6 @@ export default function App(): JSX.Element {
       setConnectionStatus(status as 'disconnected' | 'connecting' | 'connected' | 'error');
       if (status === 'disconnected') setNodes([]);
       
-      // Auto Log Connection Changes
       if (status === 'connected') addSystemLog("System", "Hardware connected to COM port.");
       if (status === 'disconnected') addSystemLog("System", "Hardware disconnected.");
     });
@@ -84,7 +87,7 @@ export default function App(): JSX.Element {
   const addSystemLog = (user: string, action: string) => {
     const newLog = { time: new Date().toLocaleTimeString() + ' ' + new Date().toLocaleDateString(), user, action };
     setSystemLogs(prev => {
-      const updated = [newLog, ...prev].slice(0, 100); // Keep last 100 logs
+      const updated = [newLog, ...prev].slice(0, 100);
       localStorage.setItem('rescueWaveLogs', JSON.stringify(updated));
       return updated;
     });
@@ -93,7 +96,6 @@ export default function App(): JSX.Element {
   // --- LOGIN LOGIC ---
   const handleLogin = (e: React.FormEvent) => {
     e.preventDefault();
-    // Default Credentials: Any Name / 1234
     if (usernameInput.trim() !== '' && passwordInput === '1234') {
       setIsAuthenticated(true);
       setCurrentUser(usernameInput.trim());
@@ -111,6 +113,25 @@ export default function App(): JSX.Element {
     setPasswordInput('');
   };
 
+  // --- DISCONNECT LOGIC ---
+  const initiateDisconnect = () => {
+    setDisconnectPassword('');
+    setDisconnectError('');
+    setShowDisconnectAuth(true);
+  };
+
+  const confirmDisconnect = async (e: React.FormEvent) => {
+    e.preventDefault();
+    if (disconnectPassword === '1234') {
+      await window.api.disconnectPort();
+      setNodes([]);
+      setShowDisconnectAuth(false);
+      addSystemLog(currentUser, "Authorized manual hardware disconnect.");
+    } else {
+      setDisconnectError('Invalid PIN.');
+    }
+  };
+
   // --- DASHBOARD HANDLERS ---
   const fetchPorts = async () => {
     const availablePorts = await window.api.getPorts();
@@ -125,18 +146,8 @@ export default function App(): JSX.Element {
     await window.api.connectPort(selectedPort);
   };
 
-  const handleDisconnect = async () => {
-    await window.api.disconnectPort();
-    setNodes([]);
-  };
-
-  const handleScrollToMap = () => {
-    mapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
-  
-  const handleScrollToNodes = () => {
-    nodesSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
-  };
+  const handleScrollToMap = () => mapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  const handleScrollToNodes = () => nodesSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
 
   const handleOpenHistory = async () => {
     const data = await window.api.getHistory();
@@ -180,68 +191,109 @@ export default function App(): JSX.Element {
     }
   };
 
-  // --- RENDER LOGIN SCREEN IF NOT AUTHENTICATED ---
-  if (!isAuthenticated) {
-    return (
-      <div className="flex h-screen w-full items-center justify-center bg-slate-900 font-sans">
-        <div className="bg-white p-10 rounded-2xl shadow-2xl w-[400px]">
-          <div className="text-center mb-8">
-            <h1 className="text-3xl font-black text-indigo-950 tracking-tight mb-2">RescueWave</h1>
-            <p className="text-sm text-slate-500 font-semibold uppercase tracking-wider">Authorized Personnel Only</p>
-          </div>
-          <form onSubmit={handleLogin} className="space-y-5">
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Username</label>
-              <input 
-                type="text" 
-                required 
-                value={usernameInput} 
-                onChange={(e) => setUsernameInput(e.target.value)}
-                className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 font-semibold text-slate-700 bg-slate-50"
-                placeholder="e.g. Fahim Hossain"
-              />
-            </div>
-            <div>
-              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">PIN / Password</label>
-              <input 
-                type="password" 
-                required 
-                value={passwordInput} 
-                onChange={(e) => setPasswordInput(e.target.value)}
-                className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 font-semibold text-slate-700 bg-slate-50"
-                placeholder="••••"
-              />
-            </div>
-            {loginError && <p className="text-red-500 text-xs font-semibold text-center">{loginError}</p>}
-            <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg shadow-lg shadow-indigo-600/30 transition-colors mt-4">
-              Access Dashboard
-            </button>
-          </form>
+  // --- RENDER LOGIN SCREEN ---
+  // --- RENDER LOGIN SCREEN (Updated with Video Background) ---
+if (!isAuthenticated) {
+  return (
+    <div className="relative h-screen w-full flex items-center justify-center overflow-hidden font-sans">
+      {/* Video Background */}
+      <video 
+        autoPlay 
+        loop 
+        muted 
+        className="absolute inset-0 w-full h-full object-cover z-0"
+      >
+        <source src="/background.mp4" type="video/mp4" />
+      </video>
+      
+      {/* Dark Overlay for better contrast */}
+      <div className="absolute inset-0 bg-black/50 z-10"></div>
+
+      {/* Login Card (Glassmorphism effect) */}
+      <div className="relative z-20 bg-white/10 backdrop-blur-md p-10 rounded-3xl shadow-2xl border border-white/20 w-[400px]">
+        <div className="text-center mb-8">
+          <h1 className="text-4xl font-black text-white tracking-tight mb-2">RescueWave</h1>
+          <p className="text-sm text-indigo-100 font-semibold uppercase tracking-widest">Coordinator Access</p>
         </div>
+        
+        <form onSubmit={handleLogin} className="space-y-5">
+          <div>
+            <label className="block text-[10px] font-bold text-white uppercase tracking-wider mb-2">Username</label>
+            <input 
+              type="text" 
+              required 
+              value={usernameInput} 
+              onChange={(e) => setUsernameInput(e.target.value)}
+              className="w-full px-4 py-3 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50 focus:outline-none focus:border-indigo-400 font-semibold"
+              placeholder="e.g. Fahim Hossain"
+            />
+          </div>
+          <div>
+            <label className="block text-[10px] font-bold text-white uppercase tracking-wider mb-2">PIN / Password</label>
+            <input 
+              type="password" 
+              required 
+              value={passwordInput} 
+              onChange={(e) => setPasswordInput(e.target.value)}
+              className="w-full px-4 py-3 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50 focus:outline-none focus:border-indigo-400 font-semibold"
+              placeholder="••••"
+            />
+          </div>
+          {loginError && <p className="text-rose-300 text-xs font-bold text-center bg-rose-900/50 py-2 rounded">{loginError}</p>}
+          <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-4 rounded-lg shadow-lg transition-all transform hover:scale-[1.02]">
+            Access Dashboard
+          </button>
+        </form>
       </div>
-    );
-  }
+    </div>
+  );
+}
 
   const activeNodesCount = nodes.length;
   const sosAlertsCount = nodes.filter(n => n.sosStatus === 'SOS').length;
 
   return (
-    <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
+    <div className="flex h-screen w-full bg-slate-50 font-sans text-slate-900 overflow-hidden">
       
+      {/* 4. DISCONNECT AUTH MODAL */}
+      {showDisconnectAuth && (
+        <div className="fixed inset-0 bg-slate-900/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-[350px] shadow-2xl p-6">
+            <h2 className="text-lg font-bold text-rose-600 mb-2">Confirm Disconnect</h2>
+            <p className="text-xs text-slate-500 mb-5">Enter PIN to authorize hardware disconnection.</p>
+            <form onSubmit={confirmDisconnect}>
+              <input 
+                type="password" 
+                autoFocus
+                required 
+                value={disconnectPassword} 
+                onChange={(e) => setDisconnectPassword(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 font-semibold text-slate-700 bg-slate-50 mb-3"
+                placeholder="••••"
+              />
+              {disconnectError && <p className="text-rose-500 text-xs font-semibold mb-3">{disconnectError}</p>}
+              <div className="flex space-x-3">
+                <button type="button" onClick={() => setShowDisconnectAuth(false)} className="flex-1 px-4 py-2 bg-slate-100 text-slate-600 font-bold rounded-lg hover:bg-slate-200 text-sm transition-colors">
+                  Cancel
+                </button>
+                <button type="submit" className="flex-1 px-4 py-2 bg-rose-600 text-white font-bold rounded-lg hover:bg-rose-700 text-sm transition-colors">
+                  Disconnect
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
+      )}
+
       {/* 1. SETTINGS MODAL */}
       {showSettings && (
         <div className="fixed inset-0 bg-indigo-950/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl w-[550px] overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
             <div className="bg-indigo-900 px-6 py-4 flex justify-between items-center shrink-0">
-              <h2 className="text-white font-bold text-lg flex items-center">
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                System Settings
-              </h2>
+              <h2 className="text-white font-bold text-lg flex items-center">⚙️ System Settings</h2>
               <button onClick={() => setShowSettings(false)} className="text-indigo-200 hover:text-white text-xl">✕</button>
             </div>
-            
             <div className="p-6 overflow-y-auto">
-              {/* Preferences Section */}
               <div className="mb-8">
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 border-b pb-2">App Preferences</h3>
                 <div className="flex justify-between items-center mb-4">
@@ -249,26 +301,18 @@ export default function App(): JSX.Element {
                     <p className="font-bold text-slate-800 text-sm">Dashboard Audio Alerts</p>
                     <p className="text-xs text-slate-500">Play sounds when SOS is received</p>
                   </div>
-                  <button 
-                    onClick={() => setAudioAlerts(!audioAlerts)}
-                    className={`w-12 h-6 rounded-full relative transition-colors ${audioAlerts ? 'bg-indigo-600' : 'bg-slate-300'}`}
-                  >
+                  <button onClick={() => setAudioAlerts(!audioAlerts)} className={`w-12 h-6 rounded-full relative transition-colors ${audioAlerts ? 'bg-indigo-600' : 'bg-slate-300'}`}>
                     <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-transform ${audioAlerts ? 'left-7' : 'left-1'}`}></div>
                   </button>
                 </div>
-                
                 <div className="flex justify-between items-center">
                   <div>
                     <p className="font-bold text-slate-800 text-sm">Clear Live Dashboard</p>
                     <p className="text-xs text-slate-500">Removes all currently visible nodes</p>
                   </div>
-                  <button onClick={handleClearDashboard} className="px-3 py-1.5 bg-rose-100 text-rose-700 font-bold text-xs rounded hover:bg-rose-200">
-                    Clear Data
-                  </button>
+                  <button onClick={handleClearDashboard} className="px-3 py-1.5 bg-rose-100 text-rose-700 font-bold text-xs rounded hover:bg-rose-200">Clear Data</button>
                 </div>
               </div>
-
-              {/* Node Names Section */}
               <div>
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 border-b pb-2">Node Name Configuration</h3>
                 {nodes.length === 0 ? (
@@ -276,10 +320,7 @@ export default function App(): JSX.Element {
                 ) : (
                   nodes.map(n => (
                     <div key={n.id} className="flex justify-between items-center mb-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
-                      <span className="font-bold text-indigo-950 flex items-center">
-                        <svg className="w-4 h-4 mr-2 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
-                        {n.id}
-                      </span>
+                      <span className="font-bold text-indigo-950 flex items-center">{n.id}</span>
                       <input
                         type="text"
                         placeholder="Enter location name..."
@@ -301,10 +342,7 @@ export default function App(): JSX.Element {
         <div className="fixed inset-0 bg-red-950/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl w-[700px] max-h-[80vh] flex flex-col shadow-2xl overflow-hidden">
             <div className="bg-red-600 px-6 py-4 flex justify-between items-center">
-              <h2 className="text-white font-bold text-lg flex items-center">
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
-                SOS Alert History (Local DB)
-              </h2>
+              <h2 className="text-white font-bold text-lg flex items-center">🚨 SOS Alert History (Local DB)</h2>
               <button onClick={() => setShowHistory(false)} className="text-red-200 hover:text-white text-xl">✕</button>
             </div>
             <div className="p-0 overflow-y-auto flex-1">
@@ -335,15 +373,12 @@ export default function App(): JSX.Element {
         </div>
       )}
 
-      {/* 3. SYSTEM LOGS MODAL (NEW) */}
+      {/* 3. SYSTEM LOGS MODAL */}
       {showLogs && (
         <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl w-[700px] max-h-[80vh] flex flex-col shadow-2xl overflow-hidden">
             <div className="bg-slate-800 px-6 py-4 flex justify-between items-center">
-              <h2 className="text-white font-bold text-lg flex items-center">
-                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
-                Activity & System Logs
-              </h2>
+              <h2 className="text-white font-bold text-lg flex items-center">Activity & System Logs</h2>
               <button onClick={() => setShowLogs(false)} className="text-slate-400 hover:text-white text-xl">✕</button>
             </div>
             <div className="p-0 overflow-y-auto flex-1 bg-slate-50">
@@ -391,15 +426,17 @@ export default function App(): JSX.Element {
         onLogout={handleLogout}
       />
 
-      <main className="flex-1 ml-64 overflow-y-auto scroll-smooth">
+      {/* FIXED: MAIN CONTENT WIDTH & SCROLLING */}
+      <main className="flex-1 ml-64 h-screen overflow-y-auto overflow-x-hidden scroll-smooth flex flex-col min-w-0">
         
         {connectionStatus === 'error' && (
-          <div className="bg-rose-600 text-white text-center py-2 text-xs font-bold tracking-wider sticky top-0 z-20 shadow-sm animate-pulse">
+          <div className="bg-rose-600 text-white text-center py-2 text-xs font-bold tracking-wider sticky top-0 z-20 shadow-sm animate-pulse shrink-0">
             ❌ AUTHENTICATION ERROR: HARDWARE DISCONNECTED
           </div>
         )}
 
-        <header className="px-8 py-6 flex justify-between items-center border-b border-slate-200 bg-white/50 backdrop-blur-sm sticky top-0 z-10">
+        {/* FIXED: HEADER WIDTH & BUTTON TEXT */}
+        <header className="px-8 py-6 flex justify-between items-center border-b border-slate-200 bg-white/50 backdrop-blur-sm sticky top-0 z-10 shrink-0">
           <div>
             <h2 className="text-2xl font-bold text-indigo-950">System Overview</h2>
             <p className="text-sm text-slate-500 mt-1">Real-time disaster area telemetry</p>
@@ -420,16 +457,19 @@ export default function App(): JSX.Element {
             </div>
 
             {connectionStatus === 'connected' ? (
-              <button onClick={handleDisconnect} className="px-6 py-2.5 rounded-lg text-sm font-bold shadow-sm bg-rose-600 text-white hover:bg-rose-700">DISCONNECT ×</button>
+              <button onClick={initiateDisconnect} className="px-6 py-2.5 rounded-lg text-sm font-bold shadow-sm bg-rose-600 text-white hover:bg-rose-700 uppercase tracking-wider">
+                Disconnect
+              </button>
             ) : (
-              <button onClick={handleConnect} disabled={!selectedPort} className="px-6 py-2.5 rounded-lg text-sm font-bold shadow-sm bg-indigo-950 text-white hover:bg-indigo-900 disabled:opacity-50">CONNECT ESP32</button>
+              <button onClick={handleConnect} disabled={!selectedPort} className="px-6 py-2.5 rounded-lg text-sm font-bold shadow-sm bg-indigo-950 text-white hover:bg-indigo-900 disabled:opacity-50 uppercase tracking-wider">
+                Connect
+              </button>
             )}
           </div>
         </header>
 
-        <div className="p-8">
-
-          {/* MAP SECTION (Target for scroll) */}
+        <div className="p-8 flex-1">
+          {/* MAP SECTION */}
           <div ref={mapSectionRef} className="mb-10 relative z-0 pt-4">
             <MapComponent nodes={nodes} nodeNames={nodeNames} />
           </div>
@@ -450,7 +490,7 @@ export default function App(): JSX.Element {
             ))}
           </div>
 
-          {/* NODES SECTION (Target for scroll) */}
+          {/* NODES SECTION */}
           <div ref={nodesSectionRef} className="pt-4 pb-20">
             <h3 className="text-sm font-bold text-indigo-900 mb-4 tracking-wide uppercase">Telemetry Streams</h3>
             {connectionStatus !== 'connected' ? (

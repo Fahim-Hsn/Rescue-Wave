@@ -4,11 +4,9 @@ import { MapContainer, TileLayer, Marker, Popup, useMap, LayersControl } from 'r
 import L from 'leaflet';
 import { NodeTelemetry } from '../../shared/gateway-node';
 
-// Import marker images to fix Vite bundler issues
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
 
-// Default Icon (For safe remote nodes)
 const DefaultIcon = L.icon({
   iconUrl: icon,
   shadowUrl: iconShadow,
@@ -17,7 +15,6 @@ const DefaultIcon = L.icon({
   popupAnchor: [1, -34],
 });
 
-// SOS Icon (Red color for danger alerts)
 const SOSIcon = L.icon({
   iconUrl: icon,
   shadowUrl: iconShadow,
@@ -27,7 +24,6 @@ const SOSIcon = L.icon({
   className: 'hue-rotate-[150deg] brightness-90', 
 });
 
-// Gateway Icon (Deep purple/blue icon for BAIUST Base)
 const GatewayIcon = L.icon({
   iconUrl: icon,
   shadowUrl: iconShadow,
@@ -37,21 +33,17 @@ const GatewayIcon = L.icon({
   className: 'hue-rotate-[250deg] brightness-75',
 });
 
-// Set global default icon
 L.Marker.prototype.options.icon = DefaultIcon;
 
-// Map Controller for Auto-Focus and sizing fixes
 function MapController({ nodes, baseCoords }: { nodes: NodeTelemetry[], baseCoords: [number, number] }) {
   const map = useMap();
   
-  // Fix for map not rendering tiles correctly on first load inside hidden containers
   useEffect(() => {
     setTimeout(() => {
       map.invalidateSize();
     }, 250);
   }, [map]);
 
-  // Auto-focus camera on node that triggers SOS
   useEffect(() => {
     const sosNode = nodes.find(n => n.sosStatus === 'SOS');
     if (sosNode) {
@@ -68,7 +60,7 @@ interface MapProps {
 }
 
 export default function MapComponent({ nodes, nodeNames }: MapProps) {
-  // Exact Coordinates for BAIUST, Cumilla Cantonment
+  // BAIUST Default Location
   const baiustCoords: [number, number] = [23.4622, 91.1370];
   
   return (
@@ -80,19 +72,18 @@ export default function MapComponent({ nodes, nodeNames }: MapProps) {
       >
         <MapController nodes={nodes} baseCoords={baiustCoords} />
         
-        {/* --- DUAL MAP CONTROL (Satellite & Road View) --- */}
         <LayersControl position="topright">
           
-          {/* 1. Road View (Standard Map) */}
-          <LayersControl.BaseLayer name="🛣️ Road View">
+          {/* Road View (Set as Default Checked) */}
+          <LayersControl.BaseLayer checked name="🛣️ Road View">
             <TileLayer
               attribution='&copy; Google Maps Road'
               url="https://mt1.google.com/vt/lyrs=m&x={x}&y={y}&z={z}"
             />
           </LayersControl.BaseLayer>
 
-          {/* 2. Satellite View (Set as Default Checked) */}
-          <LayersControl.BaseLayer checked name="🛰️ Satellite View">
+          {/* Satellite View */}
+          <LayersControl.BaseLayer name="🛰️ Satellite View">
             <TileLayer
               attribution='&copy; Google Maps Satellite'
               url="https://mt1.google.com/vt/lyrs=y&x={x}&y={y}&z={z}"
@@ -101,7 +92,6 @@ export default function MapComponent({ nodes, nodeNames }: MapProps) {
 
         </LayersControl>
 
-        {/* --- PERMANENT BAIUST HQ PIN --- */}
         <Marker position={baiustCoords} icon={GatewayIcon} zIndexOffset={1000}>
           <Popup className="rounded-xl font-sans min-w-[200px]">
             <div className="text-center p-1">
@@ -115,7 +105,6 @@ export default function MapComponent({ nodes, nodeNames }: MapProps) {
           </Popup>
         </Marker>
         
-        {/* --- DYNAMIC SENSOR NODES --- */}
         {nodes.map((node) => {
           const displayName = nodeNames[node.id] || node.id;
           const hasCustomName = !!nodeNames[node.id];
@@ -128,24 +117,19 @@ export default function MapComponent({ nodes, nodeNames }: MapProps) {
             >
               <Popup className="rounded-xl font-sans min-w-[150px]">
                 <div className="text-center">
-                  
-                  {/* Display Custom Name and Node ID */}
                   <strong className="text-indigo-950 block text-sm mb-0.5">
                     {displayName}
                   </strong>
                   {hasCustomName && (
                     <span className="text-[10px] text-slate-400 block mb-1">({node.id})</span>
                   )}
-                  
                   <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${node.sosStatus === 'SOS' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
                     {node.sosStatus === 'SOS' ? 'SOS TRIGGERED' : 'SAFE'}
                   </span>
-                  
                   <div className="mt-3 text-xs text-slate-600 text-left bg-slate-50 p-2 rounded border border-slate-100">
                     <p className="mb-1">Temp: <b className="text-slate-800">{node.temperature}°C</b></p>
                     <p>Water: <b className="text-slate-800">{node.waterLevel} cm</b></p>
                   </div>
-                  
                 </div>
               </Popup>
             </Marker>
