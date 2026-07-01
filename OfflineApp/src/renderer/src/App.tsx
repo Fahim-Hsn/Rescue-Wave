@@ -21,7 +21,15 @@ declare global {
   }
 }
 
-function App(): JSX.Element {
+export default function App(): JSX.Element {
+  // --- AUTHENTICATION STATE ---
+  const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [usernameInput, setUsernameInput] = useState('');
+  const [passwordInput, setPasswordInput] = useState('');
+  const [currentUser, setCurrentUser] = useState('');
+  const [loginError, setLoginError] = useState('');
+
+  // --- DASHBOARD STATE ---
   const [nodes, setNodes] = useState<NodeTelemetry[]>([]);
   const [ports, setPorts] = useState<string[]>([]);
   const [selectedPort, setSelectedPort] = useState<string>('');
@@ -31,13 +39,22 @@ function App(): JSX.Element {
   const [showHistory, setShowHistory] = useState(false);
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [showSettings, setShowSettings] = useState(false);
-  const [audioAlerts, setAudioAlerts] = useState(true); // New App Setting
+  const [audioAlerts, setAudioAlerts] = useState(true); 
+
+  // --- SYSTEM LOGS STATE ---
+  const [showLogs, setShowLogs] = useState(false);
+  const [systemLogs, setSystemLogs] = useState<{time: string, user: string, action: string}[]>([]);
 
   // Refs for smooth scrolling
   const mapSectionRef = useRef<HTMLDivElement>(null);
   const nodesSectionRef = useRef<HTMLDivElement>(null);
 
+  // --- INITIALIZATION & EFFECTS ---
   useEffect(() => {
+    // Load local logs from local storage
+    const savedLogs = localStorage.getItem('rescueWaveLogs');
+    if (savedLogs) setSystemLogs(JSON.parse(savedLogs));
+
     fetchPorts();
     window.api.getSettings().then(data => setNodeNames(data || {}));
 
@@ -56,9 +73,45 @@ function App(): JSX.Element {
     window.api.onPortStatus((status: string) => {
       setConnectionStatus(status as 'disconnected' | 'connecting' | 'connected' | 'error');
       if (status === 'disconnected') setNodes([]);
+      
+      // Auto Log Connection Changes
+      if (status === 'connected') addSystemLog("System", "Hardware connected to COM port.");
+      if (status === 'disconnected') addSystemLog("System", "Hardware disconnected.");
     });
   }, []);
 
+  // --- HELPER: SYSTEM LOG TRACKER ---
+  const addSystemLog = (user: string, action: string) => {
+    const newLog = { time: new Date().toLocaleTimeString() + ' ' + new Date().toLocaleDateString(), user, action };
+    setSystemLogs(prev => {
+      const updated = [newLog, ...prev].slice(0, 100); // Keep last 100 logs
+      localStorage.setItem('rescueWaveLogs', JSON.stringify(updated));
+      return updated;
+    });
+  };
+
+  // --- LOGIN LOGIC ---
+  const handleLogin = (e: React.FormEvent) => {
+    e.preventDefault();
+    // Default Credentials: Any Name / 1234
+    if (usernameInput.trim() !== '' && passwordInput === '1234') {
+      setIsAuthenticated(true);
+      setCurrentUser(usernameInput.trim());
+      setLoginError('');
+      addSystemLog(usernameInput.trim(), "Logged into the dashboard.");
+    } else {
+      setLoginError('Invalid credentials. Hint: pass is 1234');
+    }
+  };
+
+  const handleLogout = () => {
+    addSystemLog(currentUser, "Logged out of the dashboard.");
+    setIsAuthenticated(false);
+    setUsernameInput('');
+    setPasswordInput('');
+  };
+
+  // --- DASHBOARD HANDLERS ---
   const fetchPorts = async () => {
     const availablePorts = await window.api.getPorts();
     setPorts(availablePorts);
@@ -77,7 +130,6 @@ function App(): JSX.Element {
     setNodes([]);
   };
 
-  // --- Smooth Scroll Handlers ---
   const handleScrollToMap = () => {
     mapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
   };
@@ -98,7 +150,8 @@ function App(): JSX.Element {
     nodes.forEach(n => {
       csv += `"${new Date().toLocaleTimeString()}","${n.id}","${nodeNames[n.id] || 'Unassigned'}","${n.sosStatus}","${n.lat}","${n.lng}","${n.temperature}","${n.waterLevel}"\n`;
     });
-    await window.api.exportCsv(csv, `RescueWave_Live_Data_${Date.now()}.csv`);
+    const success = await window.api.exportCsv(csv, `RescueWave_Live_Data_${Date.now()}.csv`);
+    if (success) addSystemLog(currentUser, "Exported Live Data CSV.");
   };
 
   const handleExportHistory = async () => {
@@ -108,20 +161,66 @@ function App(): JSX.Element {
     data.forEach(h => {
       csv += `"${h.time}","${h.node}","${h.lat}","${h.lng}"\n`;
     });
-    await window.api.exportCsv(csv, `RescueWave_SOS_History_${Date.now()}.csv`);
+    const success = await window.api.exportCsv(csv, `RescueWave_SOS_History_${Date.now()}.csv`);
+    if (success) addSystemLog(currentUser, "Exported SOS History CSV.");
   };
 
   const handleSaveNodeName = (id: string, newName: string) => {
+    const oldName = nodeNames[id] || id;
     const updated = { ...nodeNames, [id]: newName };
     setNodeNames(updated);
     window.api.saveSettings(updated);
+    addSystemLog(currentUser, `Changed node ${id} name from "${oldName}" to "${newName}".`);
   };
 
   const handleClearDashboard = () => {
     if(confirm("Are you sure you want to clear live dashboard data?")) {
       setNodes([]);
+      addSystemLog(currentUser, "Cleared Live Dashboard data.");
     }
   };
+
+  // --- RENDER LOGIN SCREEN IF NOT AUTHENTICATED ---
+  if (!isAuthenticated) {
+    return (
+      <div className="flex h-screen w-full items-center justify-center bg-slate-900 font-sans">
+        <div className="bg-white p-10 rounded-2xl shadow-2xl w-[400px]">
+          <div className="text-center mb-8">
+            <h1 className="text-3xl font-black text-indigo-950 tracking-tight mb-2">RescueWave</h1>
+            <p className="text-sm text-slate-500 font-semibold uppercase tracking-wider">Authorized Personnel Only</p>
+          </div>
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">Username</label>
+              <input 
+                type="text" 
+                required 
+                value={usernameInput} 
+                onChange={(e) => setUsernameInput(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 font-semibold text-slate-700 bg-slate-50"
+                placeholder="e.g. Fahim Hossain"
+              />
+            </div>
+            <div>
+              <label className="block text-xs font-bold text-slate-500 uppercase tracking-wider mb-2">PIN / Password</label>
+              <input 
+                type="password" 
+                required 
+                value={passwordInput} 
+                onChange={(e) => setPasswordInput(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:outline-none focus:border-indigo-600 focus:ring-1 focus:ring-indigo-600 font-semibold text-slate-700 bg-slate-50"
+                placeholder="••••"
+              />
+            </div>
+            {loginError && <p className="text-red-500 text-xs font-semibold text-center">{loginError}</p>}
+            <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-700 text-white font-bold py-3 px-4 rounded-lg shadow-lg shadow-indigo-600/30 transition-colors mt-4">
+              Access Dashboard
+            </button>
+          </form>
+        </div>
+      </div>
+    );
+  }
 
   const activeNodesCount = nodes.length;
   const sosAlertsCount = nodes.filter(n => n.sosStatus === 'SOS').length;
@@ -129,7 +228,7 @@ function App(): JSX.Element {
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
       
-      {/* SETTINGS MODAL (Enhanced) */}
+      {/* 1. SETTINGS MODAL */}
       {showSettings && (
         <div className="fixed inset-0 bg-indigo-950/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl w-[550px] overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
@@ -142,7 +241,6 @@ function App(): JSX.Element {
             </div>
             
             <div className="p-6 overflow-y-auto">
-              
               {/* Preferences Section */}
               <div className="mb-8">
                 <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 border-b pb-2">App Preferences</h3>
@@ -198,7 +296,7 @@ function App(): JSX.Element {
         </div>
       )}
 
-      {/* HISTORY MODAL */}
+      {/* 2. HISTORY MODAL */}
       {showHistory && (
         <div className="fixed inset-0 bg-red-950/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl w-[700px] max-h-[80vh] flex flex-col shadow-2xl overflow-hidden">
@@ -237,14 +335,60 @@ function App(): JSX.Element {
         </div>
       )}
 
+      {/* 3. SYSTEM LOGS MODAL (NEW) */}
+      {showLogs && (
+        <div className="fixed inset-0 bg-slate-900/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-[700px] max-h-[80vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="bg-slate-800 px-6 py-4 flex justify-between items-center">
+              <h2 className="text-white font-bold text-lg flex items-center">
+                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M9 12h6m-6 4h6m2 5H7a2 2 0 01-2-2V5a2 2 0 012-2h5.586a1 1 0 01.707.293l5.414 5.414a1 1 0 01.293.707V19a2 2 0 01-2 2z" /></svg>
+                Activity & System Logs
+              </h2>
+              <button onClick={() => setShowLogs(false)} className="text-slate-400 hover:text-white text-xl">✕</button>
+            </div>
+            <div className="p-0 overflow-y-auto flex-1 bg-slate-50">
+              {systemLogs.length === 0 ? (
+                <p className="text-center text-slate-500 py-10">No system activities recorded yet.</p>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-white sticky top-0 shadow-sm z-10">
+                    <tr className="border-b border-slate-200 text-[10px] uppercase text-slate-400 tracking-wider">
+                      <th className="py-3 px-6">Timestamp</th>
+                      <th className="py-3 px-4">User</th>
+                      <th className="py-3 px-6">Action Details</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {systemLogs.map((log, i) => (
+                      <tr key={i} className="border-b border-slate-200/60 text-sm hover:bg-white transition-colors">
+                        <td className="py-3 px-6 text-slate-500 font-mono text-xs">{log.time}</td>
+                        <td className="py-3 px-4">
+                          <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${log.user === 'System' ? 'bg-slate-200 text-slate-600' : 'bg-indigo-100 text-indigo-700'}`}>
+                            {log.user}
+                          </span>
+                        </td>
+                        <td className="py-3 px-6 text-slate-700 font-medium">{log.action}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* SIDEBAR COMPONENT */}
       <NodeSidebar 
         onScrollToMap={handleScrollToMap}
         onScrollToNodes={handleScrollToNodes}
         onOpenSettings={() => setShowSettings(true)}
         onOpenHistory={handleOpenHistory}
+        onOpenLogs={() => setShowLogs(true)}
         onExportCSV={handleExportCSV}
         onExportHistory={handleExportHistory}
+        currentUser={currentUser}
+        onLogout={handleLogout}
       />
 
       <main className="flex-1 ml-64 overflow-y-auto scroll-smooth">
@@ -333,5 +477,3 @@ function App(): JSX.Element {
     </div>
   );
 }
-
-export default App;
