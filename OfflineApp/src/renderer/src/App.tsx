@@ -1,5 +1,5 @@
 // File Location: OfflineApp/src/renderer/src/App.tsx
-import React, { useState, useEffect } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import NodeSidebar from './components/NodeSidebar';
 import NodeCard from './components/NodeCard';
 import MapComponent from './components/MapComponent';
@@ -13,6 +13,10 @@ declare global {
       connectPort: (portPath: string) => Promise<boolean>;
       disconnectPort: () => Promise<boolean>;
       onPortStatus: (callback: (status: string) => void) => void;
+      exportCsv: (data: string, filename: string) => Promise<boolean>;
+      saveSettings: (settings: any) => Promise<void>;
+      getSettings: () => Promise<any>;
+      getHistory: () => Promise<any[]>;
     };
   }
 }
@@ -23,12 +27,22 @@ function App(): JSX.Element {
   const [selectedPort, setSelectedPort] = useState<string>('');
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
 
+  const [nodeNames, setNodeNames] = useState<Record<string, string>>({});
+  const [showHistory, setShowHistory] = useState(false);
+  const [historyData, setHistoryData] = useState<any[]>([]);
+  const [showSettings, setShowSettings] = useState(false);
+  const [audioAlerts, setAudioAlerts] = useState(true); // New App Setting
+
+  // Refs for smooth scrolling
+  const mapSectionRef = useRef<HTMLDivElement>(null);
+  const nodesSectionRef = useRef<HTMLDivElement>(null);
+
   useEffect(() => {
     fetchPorts();
+    window.api.getSettings().then(data => setNodeNames(data || {}));
 
     window.api.onSerialData((newData: NodeTelemetry) => {
       setNodes((prevNodes) => {
-        // Prevent duplicate IDs, only update existing or add new
         const existingIndex = prevNodes.findIndex((n) => n.id === newData.id);
         if (existingIndex !== -1) {
           const updatedNodes = [...prevNodes];
@@ -41,38 +55,70 @@ function App(): JSX.Element {
 
     window.api.onPortStatus((status: string) => {
       setConnectionStatus(status as 'disconnected' | 'connecting' | 'connected' | 'error');
-      // If hardware disconnects, clear the dashboard nodes to stay in sync
-      if (status === 'disconnected') {
-        setNodes([]); 
-      }
+      if (status === 'disconnected') setNodes([]);
     });
   }, []);
 
   const fetchPorts = async () => {
     const availablePorts = await window.api.getPorts();
     setPorts(availablePorts);
-    if (availablePorts.length > 0 && !selectedPort) {
-      setSelectedPort(availablePorts[0]);
-    }
+    if (availablePorts.length > 0 && !selectedPort) setSelectedPort(availablePorts[0]);
   };
 
   const handleConnect = async () => {
     if (!selectedPort) return;
     setConnectionStatus('connecting');
-    // Clear old data when establishing a new connection
     setNodes([]);
     await window.api.connectPort(selectedPort);
   };
 
   const handleDisconnect = async () => {
     await window.api.disconnectPort();
-    setNodes([]); // Clear nodes on manual disconnect
+    setNodes([]);
   };
 
-  // Manual Refresh / Sync Button Handler
-  const handleSyncTelemetry = () => {
-    // This clears the frontend state. Next time hardware sends data, it will repopulate.
-    if (connectionStatus === 'connected') {
+  // --- Smooth Scroll Handlers ---
+  const handleScrollToMap = () => {
+    mapSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+  
+  const handleScrollToNodes = () => {
+    nodesSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' });
+  };
+
+  const handleOpenHistory = async () => {
+    const data = await window.api.getHistory();
+    setHistoryData(data);
+    setShowHistory(true);
+  };
+
+  const handleExportCSV = async () => {
+    if (nodes.length === 0) return alert("No active nodes to export.");
+    let csv = "Time,Node ID,Custom Name,Status,Latitude,Longitude,Temperature(C),Water Level(cm)\n";
+    nodes.forEach(n => {
+      csv += `"${new Date().toLocaleTimeString()}","${n.id}","${nodeNames[n.id] || 'Unassigned'}","${n.sosStatus}","${n.lat}","${n.lng}","${n.temperature}","${n.waterLevel}"\n`;
+    });
+    await window.api.exportCsv(csv, `RescueWave_Live_Data_${Date.now()}.csv`);
+  };
+
+  const handleExportHistory = async () => {
+    const data = await window.api.getHistory();
+    if (!data || data.length === 0) return alert("No SOS history to export.");
+    let csv = "Timestamp,Node ID,Latitude,Longitude\n";
+    data.forEach(h => {
+      csv += `"${h.time}","${h.node}","${h.lat}","${h.lng}"\n`;
+    });
+    await window.api.exportCsv(csv, `RescueWave_SOS_History_${Date.now()}.csv`);
+  };
+
+  const handleSaveNodeName = (id: string, newName: string) => {
+    const updated = { ...nodeNames, [id]: newName };
+    setNodeNames(updated);
+    window.api.saveSettings(updated);
+  };
+
+  const handleClearDashboard = () => {
+    if(confirm("Are you sure you want to clear live dashboard data?")) {
       setNodes([]);
     }
   };
@@ -82,18 +128,130 @@ function App(): JSX.Element {
 
   return (
     <div className="flex h-screen bg-slate-50 font-sans text-slate-900">
-      <NodeSidebar />
+      
+      {/* SETTINGS MODAL (Enhanced) */}
+      {showSettings && (
+        <div className="fixed inset-0 bg-indigo-950/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-[550px] overflow-hidden shadow-2xl flex flex-col max-h-[85vh]">
+            <div className="bg-indigo-900 px-6 py-4 flex justify-between items-center shrink-0">
+              <h2 className="text-white font-bold text-lg flex items-center">
+                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M10.325 4.317c.426-1.756 2.924-1.756 3.35 0a1.724 1.724 0 002.573 1.066c1.543-.94 3.31.826 2.37 2.37a1.724 1.724 0 001.065 2.572c1.756.426 1.756 2.924 0 3.35a1.724 1.724 0 00-1.066 2.573c.94 1.543-.826 3.31-2.37 2.37a1.724 1.724 0 00-2.572 1.065c-.426 1.756-2.924 1.756-3.35 0a1.724 1.724 0 00-2.573-1.066c-1.543.94-3.31-.826-2.37-2.37a1.724 1.724 0 00-1.065-2.572c-1.756-.426-1.756-2.924 0-3.35a1.724 1.724 0 001.066-2.573c-.94-1.543.826-3.31 2.37-2.37.996.608 2.296.07 2.572-1.065z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 12a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                System Settings
+              </h2>
+              <button onClick={() => setShowSettings(false)} className="text-indigo-200 hover:text-white text-xl">✕</button>
+            </div>
+            
+            <div className="p-6 overflow-y-auto">
+              
+              {/* Preferences Section */}
+              <div className="mb-8">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 border-b pb-2">App Preferences</h3>
+                <div className="flex justify-between items-center mb-4">
+                  <div>
+                    <p className="font-bold text-slate-800 text-sm">Dashboard Audio Alerts</p>
+                    <p className="text-xs text-slate-500">Play sounds when SOS is received</p>
+                  </div>
+                  <button 
+                    onClick={() => setAudioAlerts(!audioAlerts)}
+                    className={`w-12 h-6 rounded-full relative transition-colors ${audioAlerts ? 'bg-indigo-600' : 'bg-slate-300'}`}
+                  >
+                    <div className={`w-4 h-4 bg-white rounded-full absolute top-1 transition-transform ${audioAlerts ? 'left-7' : 'left-1'}`}></div>
+                  </button>
+                </div>
+                
+                <div className="flex justify-between items-center">
+                  <div>
+                    <p className="font-bold text-slate-800 text-sm">Clear Live Dashboard</p>
+                    <p className="text-xs text-slate-500">Removes all currently visible nodes</p>
+                  </div>
+                  <button onClick={handleClearDashboard} className="px-3 py-1.5 bg-rose-100 text-rose-700 font-bold text-xs rounded hover:bg-rose-200">
+                    Clear Data
+                  </button>
+                </div>
+              </div>
 
-      <main className="flex-1 ml-64 overflow-y-auto">
-        
-        {connectionStatus === 'disconnected' && (
-          <div className="bg-amber-500 text-white text-center py-2 text-xs font-bold tracking-wider sticky top-0 z-20 shadow-sm">
-            ⚠️ WARNING: GATEWAY DISCONNECTED - SERIAL INTEGRATION OFFLINE
+              {/* Node Names Section */}
+              <div>
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 border-b pb-2">Node Name Configuration</h3>
+                {nodes.length === 0 ? (
+                  <p className="text-center text-slate-500 py-2 text-sm italic">Connect hardware to assign names to active nodes.</p>
+                ) : (
+                  nodes.map(n => (
+                    <div key={n.id} className="flex justify-between items-center mb-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                      <span className="font-bold text-indigo-950 flex items-center">
+                        <svg className="w-4 h-4 mr-2 text-indigo-400" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M17.657 16.657L13.414 20.9a1.998 1.998 0 01-2.827 0l-4.244-4.243a8 8 0 1111.314 0z" /><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M15 11a3 3 0 11-6 0 3 3 0 016 0z" /></svg>
+                        {n.id}
+                      </span>
+                      <input
+                        type="text"
+                        placeholder="Enter location name..."
+                        value={nodeNames[n.id] || ''}
+                        onChange={(e) => handleSaveNodeName(n.id, e.target.value)}
+                        className="border border-slate-300 rounded-md px-3 py-1.5 w-48 text-sm focus:outline-indigo-500 focus:border-indigo-500 font-semibold text-slate-700"
+                      />
+                    </div>
+                  ))
+                )}
+              </div>
+            </div>
           </div>
-        )}
+        </div>
+      )}
+
+      {/* HISTORY MODAL */}
+      {showHistory && (
+        <div className="fixed inset-0 bg-red-950/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-[700px] max-h-[80vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="bg-red-600 px-6 py-4 flex justify-between items-center">
+              <h2 className="text-white font-bold text-lg flex items-center">
+                <svg className="w-5 h-5 mr-2" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M12 8v4l3 3m6-3a9 9 0 11-18 0 9 9 0 0118 0z" /></svg>
+                SOS Alert History (Local DB)
+              </h2>
+              <button onClick={() => setShowHistory(false)} className="text-red-200 hover:text-white text-xl">✕</button>
+            </div>
+            <div className="p-0 overflow-y-auto flex-1">
+              {historyData.length === 0 ? (
+                <p className="text-center text-slate-500 py-10">No SOS events recorded yet.</p>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50 sticky top-0">
+                    <tr className="border-b border-slate-200 text-xs uppercase text-slate-500 tracking-wider">
+                      <th className="py-3 px-6">Timestamp</th>
+                      <th className="py-3 px-6">Node ID</th>
+                      <th className="py-3 px-6">Coordinates (Lat, Lng)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {historyData.map((h, i) => (
+                      <tr key={h.id || i} className="border-b border-slate-100 text-sm hover:bg-slate-50">
+                        <td className="py-4 px-6 font-semibold text-slate-700">{h.time}</td>
+                        <td className="py-4 px-6 font-black text-red-600">{h.node}</td>
+                        <td className="py-4 px-6 text-slate-500 font-mono text-xs">{h.lat}, {h.lng}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* SIDEBAR COMPONENT */}
+      <NodeSidebar 
+        onScrollToMap={handleScrollToMap}
+        onScrollToNodes={handleScrollToNodes}
+        onOpenSettings={() => setShowSettings(true)}
+        onOpenHistory={handleOpenHistory}
+        onExportCSV={handleExportCSV}
+        onExportHistory={handleExportHistory}
+      />
+
+      <main className="flex-1 ml-64 overflow-y-auto scroll-smooth">
+        
         {connectionStatus === 'error' && (
           <div className="bg-rose-600 text-white text-center py-2 text-xs font-bold tracking-wider sticky top-0 z-20 shadow-sm animate-pulse">
-            ❌ AUTHENTICATION ERROR: INVALID HARDWARE NODE OR TIMEOUT ON DEVICE LINK
+            ❌ AUTHENTICATION ERROR: HARDWARE DISCONNECTED
           </div>
         )}
 
@@ -105,67 +263,33 @@ function App(): JSX.Element {
           
           <div className="flex items-center space-x-4">
             <div className="flex items-center bg-white rounded-lg border border-slate-200 shadow-sm p-1">
-              <button 
-                onClick={fetchPorts} 
-                className="p-1.5 text-slate-400 hover:text-indigo-600 transition-colors"
-                title="Refresh Ports"
-                disabled={connectionStatus === 'connected' || connectionStatus === 'connecting'}
-              >
-                🔄
+              <button onClick={fetchPorts} className="p-1.5 text-slate-400 hover:text-indigo-600" disabled={connectionStatus === 'connected'}>
+                <svg className="w-5 h-5" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M4 4v5h.582m15.356 2A8.001 8.001 0 004.582 9m0 0H9m11 11v-5h-.581m0 0a8.003 8.003 0 01-15.357-2m15.357 2H15" /></svg>
               </button>
               <div className="w-px h-5 bg-slate-200 mx-1"></div>
               <select
-                className="bg-transparent border-none text-sm font-bold text-slate-700 py-1.5 pl-2 pr-6 focus:ring-0 cursor-pointer outline-none w-32"
-                value={selectedPort}
-                onChange={(e) => setSelectedPort(e.target.value)}
-                disabled={connectionStatus === 'connected' || connectionStatus === 'connecting'}
+                className="bg-transparent border-none text-sm font-bold text-slate-700 py-1.5 pl-2 pr-6 outline-none w-32"
+                value={selectedPort} onChange={(e) => setSelectedPort(e.target.value)} disabled={connectionStatus === 'connected'}
               >
-                {ports.length === 0 ? (
-                  <option value="">No ports</option>
-                ) : (
-                  ports.map(port => (
-                    <option key={port} value={port}>{port}</option>
-                  ))
-                )}
+                {ports.length === 0 ? <option value="">No ports</option> : ports.map(port => <option key={port} value={port}>{port}</option>)}
               </select>
             </div>
 
             {connectionStatus === 'connected' ? (
-              <button
-                onClick={handleDisconnect}
-                className="px-6 py-2.5 rounded-lg text-sm font-bold shadow-sm bg-rose-600 text-white hover:bg-rose-700 transition-all shadow-rose-600/20"
-              >
-                DISCONNECT ×
-              </button>
+              <button onClick={handleDisconnect} className="px-6 py-2.5 rounded-lg text-sm font-bold shadow-sm bg-rose-600 text-white hover:bg-rose-700">DISCONNECT ×</button>
             ) : (
-              <button
-                onClick={handleConnect}
-                disabled={connectionStatus === 'connecting' || !selectedPort}
-                className={`px-6 py-2.5 rounded-lg text-sm font-bold shadow-sm transition-all ${
-                  connectionStatus === 'connecting' ? 'bg-amber-500 text-white cursor-wait' :
-                  'bg-indigo-950 text-white hover:bg-indigo-900 shadow-indigo-950/20 disabled:opacity-50'
-                }`}
-              >
-                {connectionStatus === 'connecting' ? 'VERIFYING...' : 'CONNECT ESP32'}
-              </button>
+              <button onClick={handleConnect} disabled={!selectedPort} className="px-6 py-2.5 rounded-lg text-sm font-bold shadow-sm bg-indigo-950 text-white hover:bg-indigo-900 disabled:opacity-50">CONNECT ESP32</button>
             )}
           </div>
         </header>
 
         <div className="p-8">
-          
-          {/* MAP SECTION (Now with Satellite View) */}
-          <div className="mb-10 relative z-0">
-            <div className="flex justify-between items-end mb-4">
-              <h3 className="text-sm font-bold text-indigo-900 tracking-wide uppercase">Live Deployment Map</h3>
-              <span className="text-xs font-semibold px-3 py-1 bg-indigo-50 text-indigo-700 border border-indigo-100 rounded-full shadow-sm">
-                Satellite View Active 🛰️
-              </span>
-            </div>
-            <MapComponent nodes={nodes} />
+
+          {/* MAP SECTION (Target for scroll) */}
+          <div ref={mapSectionRef} className="mb-10 relative z-0 pt-4">
+            <MapComponent nodes={nodes} nodeNames={nodeNames} />
           </div>
 
-          {/* STATS SECTION */}
           <div className="grid grid-cols-4 gap-6 mb-10">
             {[
               { label: 'Total Nodes', value: activeNodesCount.toString() },
@@ -177,48 +301,33 @@ function App(): JSX.Element {
                 <span className={`text-3xl font-black mb-2 ${stat.isAlert && idx === 2 ? 'text-red-600 animate-pulse' : stat.label === 'System Status' && stat.value === 'ONLINE' ? 'text-emerald-500' : 'text-indigo-950'}`}>
                   {stat.value}
                 </span>
-                <span className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">
-                  {stat.label}
-                </span>
+                <span className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">{stat.label}</span>
               </div>
             ))}
           </div>
 
-          {/* TELEMETRY STREAMS WITH REFRESH BUTTON */}
-          <div>
-            <div className="flex justify-between items-center mb-4">
-              <h3 className="text-sm font-bold text-indigo-900 tracking-wide uppercase">Telemetry Streams</h3>
-              {/* --- NEW: SYNC BUTTON --- */}
-              <button 
-                onClick={handleSyncTelemetry}
-                disabled={connectionStatus !== 'connected'}
-                className="flex items-center text-xs font-bold px-3 py-1.5 bg-slate-100 text-slate-600 rounded-lg hover:bg-slate-200 transition-colors disabled:opacity-50"
-              >
-                <span className="mr-2">🔄</span> FORCE SYNC
-              </button>
-            </div>
-            
+          {/* NODES SECTION (Target for scroll) */}
+          <div ref={nodesSectionRef} className="pt-4 pb-20">
+            <h3 className="text-sm font-bold text-indigo-900 mb-4 tracking-wide uppercase">Telemetry Streams</h3>
             {connectionStatus !== 'connected' ? (
               <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-300 text-slate-500">
-                <span className="text-4xl mb-4 block">🔌</span>
+                <svg className="w-10 h-10 mx-auto text-slate-300 mb-3" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M13 10V3L4 14h7v7l9-11h-7z" /></svg>
                 <p className="font-semibold text-lg text-slate-700">Hardware Link Offline</p>
-                <p className="text-sm mt-1">Select a valid peripheral and tap connect to authenticate baseline configuration.</p>
+                <p className="text-sm mt-1">Select a valid peripheral and connect.</p>
               </div>
             ) : nodes.length === 0 ? (
               <div className="text-center py-12 bg-white rounded-2xl border border-slate-200 shadow-sm text-slate-500">
-                <span className="text-4xl mb-4 block animate-bounce">📡</span>
+                <svg className="w-10 h-10 mx-auto text-indigo-300 mb-3 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" /></svg>
                 <p className="font-semibold text-lg text-slate-700">Awaiting Remote LoRa Signal...</p>
-                <p className="text-sm mt-1">Gateway verified and online. Port active at 115200 baud.</p>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-6">
                 {nodes.map((node) => (
-                  <NodeCard key={node.id} node={node} />
+                  <NodeCard key={node.id} node={{...node, id: nodeNames[node.id] ? `${nodeNames[node.id]} (${node.id})` : node.id}} />
                 ))}
               </div>
             )}
           </div>
-
         </div>
       </main>
     </div>

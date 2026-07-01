@@ -9,10 +9,15 @@ if (process.contextIsolated) {
       },
       getPorts: () => ipcRenderer.invoke('get-ports'),
       connectPort: (portPath: string) => ipcRenderer.invoke('connect-port', portPath),
-      disconnectPort: () => ipcRenderer.invoke('disconnect-port'), // New disconnect handler
+      disconnectPort: () => ipcRenderer.invoke('disconnect-port'),
       onPortStatus: (callback: (status: string) => void) => {
         ipcRenderer.on('port-status', (_event, value) => callback(value));
-      }
+      },
+      // --- NEW FEATURES BRIDGE ---
+      exportCsv: (data: string, filename: string) => ipcRenderer.invoke('export-csv', data, filename),
+      saveSettings: (settings: any) => ipcRenderer.invoke('save-settings', settings),
+      getSettings: () => ipcRenderer.invoke('get-settings'),
+      getHistory: () => ipcRenderer.invoke('get-history')
     });
   } catch (error) {
     console.error(error);
