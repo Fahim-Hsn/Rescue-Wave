@@ -14,6 +14,7 @@ if (process.contextIsolated) {
         ipcRenderer.on('port-status', (_event, value) => callback(value));
       },
       // --- NEW FEATURES BRIDGE ---
+      sendSerialCommand: (command: string) => ipcRenderer.invoke('send-serial-command', command),
       exportCsv: (data: string, filename: string) => ipcRenderer.invoke('export-csv', data, filename),
       saveSettings: (settings: any) => ipcRenderer.invoke('save-settings', settings),
       getSettings: () => ipcRenderer.invoke('get-settings'),

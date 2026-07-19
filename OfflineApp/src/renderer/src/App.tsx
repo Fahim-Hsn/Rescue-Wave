@@ -13,6 +13,7 @@ declare global {
       connectPort: (portPath: string) => Promise<boolean>;
       disconnectPort: () => Promise<boolean>;
       onPortStatus: (callback: (status: string) => void) => void;
+      sendSerialCommand: (command: string) => Promise<boolean>;
       exportCsv: (data: string, filename: string) => Promise<boolean>;
       saveSettings: (settings: any) => Promise<void>;
       getSettings: () => Promise<any>;
@@ -21,7 +22,7 @@ declare global {
   }
 }
 
-export default function App(): JSX.Element {
+export default function App() {
   // --- AUTHENTICATION STATE ---
   const [isAuthenticated, setIsAuthenticated] = useState(false);
   const [usernameInput, setUsernameInput] = useState('');
@@ -44,11 +45,12 @@ export default function App(): JSX.Element {
   const [showHistory, setShowHistory] = useState(false);
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [showSettings, setShowSettings] = useState(false);
-  const [audioAlerts, setAudioAlerts] = useState(true); 
+  const [audioAlerts, setAudioAlerts] = useState(true);
+  const [sensorStates, setSensorStates] = useState<Record<string, { radar: boolean, water: boolean }>>({});
 
   // --- SYSTEM LOGS STATE ---
   const [showLogs, setShowLogs] = useState(false);
-  const [systemLogs, setSystemLogs] = useState<{time: string, user: string, action: string}[]>([]);
+  const [systemLogs, setSystemLogs] = useState<{ time: string, user: string, action: string }[]>([]);
 
   // Refs for smooth scrolling
   const mapSectionRef = useRef<HTMLDivElement>(null);
@@ -77,7 +79,7 @@ export default function App(): JSX.Element {
     window.api.onPortStatus((status: string) => {
       setConnectionStatus(status as 'disconnected' | 'connecting' | 'connected' | 'error');
       if (status === 'disconnected') setNodes([]);
-      
+
       if (status === 'connected') addSystemLog("System", "Hardware connected to COM port.");
       if (status === 'disconnected') addSystemLog("System", "Hardware disconnected.");
     });
@@ -185,76 +187,103 @@ export default function App(): JSX.Element {
   };
 
   const handleClearDashboard = () => {
-    if(confirm("Are you sure you want to clear live dashboard data?")) {
+    if (confirm("Are you sure you want to clear live dashboard data?")) {
       setNodes([]);
       addSystemLog(currentUser, "Cleared Live Dashboard data.");
     }
   };
 
+  const handleToggleSensor = async (nodeId: string, sensor: 'RADAR' | 'WATER', currentState: boolean) => {
+    const newState = !currentState;
+    const command = `CMD,${nodeId},${sensor},${newState ? 'ON' : 'OFF'}`;
+
+    await window.api.sendSerialCommand(command);
+
+    setSensorStates(prev => ({
+      ...prev,
+      [nodeId]: {
+        ...(prev[nodeId] || { radar: true, water: true }),
+        [sensor.toLowerCase() as 'radar' | 'water']: newState
+      }
+    }));
+
+    addSystemLog(currentUser, `Sent remote command: Turned ${sensor} ${newState ? 'ON' : 'OFF'} for ${nodeId}`);
+  };
+
   // --- RENDER LOGIN SCREEN ---
   // --- RENDER LOGIN SCREEN (Updated with Video Background) ---
-if (!isAuthenticated) {
-  return (
-    <div className="relative h-screen w-full flex items-center justify-center overflow-hidden font-sans">
-      {/* Video Background */}
-      <video 
-        autoPlay 
-        loop 
-        muted 
-        className="absolute inset-0 w-full h-full object-cover z-0"
-      >
-        <source src="/background.mp4" type="video/mp4" />
-      </video>
-      
-      {/* Dark Overlay for better contrast */}
-      <div className="absolute inset-0 bg-black/50 z-10"></div>
+  if (!isAuthenticated) {
+    return (
+      <div className="relative h-screen w-full flex items-center justify-center overflow-hidden font-sans">
+        {/* Video Background */}
+        <video
+          autoPlay
+          loop
+          muted
+          className="absolute inset-0 w-full h-full object-cover z-0"
+        >
+          <source src="./background.mp4" type="video/mp4" />
+        </video>
 
-      {/* Login Card (Glassmorphism effect) */}
-      <div className="relative z-20 bg-white/10 backdrop-blur-md p-10 rounded-3xl shadow-2xl border border-white/20 w-[400px]">
-        <div className="text-center mb-8">
-          <h1 className="text-4xl font-black text-white tracking-tight mb-2">RescueWave</h1>
-          <p className="text-sm text-indigo-100 font-semibold uppercase tracking-widest">Coordinator Access</p>
+        {/* Dark Overlay for better contrast */}
+        <div className="absolute inset-0 bg-black/50 z-10"></div>
+
+        {/* Login Card (Glassmorphism effect) */}
+        <div className="relative z-20 bg-white/10 backdrop-blur-md p-10 rounded-3xl shadow-2xl border border-white/20 w-[400px]">
+          <div className="text-center mb-8">
+            <h1 className="text-4xl font-black text-white tracking-tight mb-2">RescueWave</h1>
+            <p className="text-sm text-indigo-100 font-semibold uppercase tracking-widest">Coordinator Access</p>
+          </div>
+
+          <form onSubmit={handleLogin} className="space-y-5">
+            <div>
+              <label className="block text-[10px] font-bold text-white uppercase tracking-wider mb-2">Username</label>
+              <input
+                type="text"
+                required
+                value={usernameInput}
+                onChange={(e) => setUsernameInput(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50 focus:outline-none focus:border-indigo-400 font-semibold"
+                placeholder="e.g. Fahim Hossain"
+              />
+            </div>
+            <div>
+              <label className="block text-[10px] font-bold text-white uppercase tracking-wider mb-2">PIN / Password</label>
+              <input
+                type="password"
+                required
+                value={passwordInput}
+                onChange={(e) => setPasswordInput(e.target.value)}
+                className="w-full px-4 py-3 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50 focus:outline-none focus:border-indigo-400 font-semibold"
+                placeholder="••••"
+              />
+            </div>
+            {loginError && <p className="text-rose-300 text-xs font-bold text-center bg-rose-900/50 py-2 rounded">{loginError}</p>}
+            <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-4 rounded-lg shadow-lg transition-all transform hover:scale-[1.02]">
+              Access Dashboard
+            </button>
+          </form>
         </div>
-        
-        <form onSubmit={handleLogin} className="space-y-5">
-          <div>
-            <label className="block text-[10px] font-bold text-white uppercase tracking-wider mb-2">Username</label>
-            <input 
-              type="text" 
-              required 
-              value={usernameInput} 
-              onChange={(e) => setUsernameInput(e.target.value)}
-              className="w-full px-4 py-3 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50 focus:outline-none focus:border-indigo-400 font-semibold"
-              placeholder="e.g. Fahim Hossain"
-            />
-          </div>
-          <div>
-            <label className="block text-[10px] font-bold text-white uppercase tracking-wider mb-2">PIN / Password</label>
-            <input 
-              type="password" 
-              required 
-              value={passwordInput} 
-              onChange={(e) => setPasswordInput(e.target.value)}
-              className="w-full px-4 py-3 rounded-lg border border-white/20 bg-white/10 text-white placeholder-white/50 focus:outline-none focus:border-indigo-400 font-semibold"
-              placeholder="••••"
-            />
-          </div>
-          {loginError && <p className="text-rose-300 text-xs font-bold text-center bg-rose-900/50 py-2 rounded">{loginError}</p>}
-          <button type="submit" className="w-full bg-indigo-600 hover:bg-indigo-500 text-white font-bold py-3 px-4 rounded-lg shadow-lg transition-all transform hover:scale-[1.02]">
-            Access Dashboard
-          </button>
-        </form>
       </div>
-    </div>
-  );
-}
+    );
+  }
 
-  const activeNodesCount = nodes.length;
-  const sosAlertsCount = nodes.filter(n => n.sosStatus === 'SOS').length;
+  // Apply local sensor overrides to incoming telemetry
+  const processedNodes = nodes.map(node => {
+    // If the radar toggle is OFF, suppress HUMAN detection alerts
+    if (node.sosStatus === 'HUMAN' && sensorStates[node.id]?.radar === false) {
+      return { ...node, sosStatus: 'SAFE' as const };
+    }
+    return node;
+  });
+
+  const activeNodesCount = processedNodes.length;
+  const sosAlertsCount = processedNodes.filter(n => n.sosStatus === 'SOS').length;
+  const humanAlertsCount = processedNodes.filter(n => n.sosStatus === 'HUMAN').length;
 
   return (
     <div className="flex h-screen w-full bg-slate-50 font-sans text-slate-900 overflow-hidden">
-      
+
       {/* 4. DISCONNECT AUTH MODAL */}
       {showDisconnectAuth && (
         <div className="fixed inset-0 bg-slate-900/70 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
@@ -262,11 +291,11 @@ if (!isAuthenticated) {
             <h2 className="text-lg font-bold text-rose-600 mb-2">Confirm Disconnect</h2>
             <p className="text-xs text-slate-500 mb-5">Enter PIN to authorize hardware disconnection.</p>
             <form onSubmit={confirmDisconnect}>
-              <input 
-                type="password" 
+              <input
+                type="password"
                 autoFocus
-                required 
-                value={disconnectPassword} 
+                required
+                value={disconnectPassword}
                 onChange={(e) => setDisconnectPassword(e.target.value)}
                 className="w-full px-4 py-3 rounded-lg border border-slate-300 focus:outline-none focus:border-rose-500 focus:ring-1 focus:ring-rose-500 font-semibold text-slate-700 bg-slate-50 mb-3"
                 placeholder="••••"
@@ -414,21 +443,23 @@ if (!isAuthenticated) {
       )}
 
       {/* SIDEBAR COMPONENT */}
-      <NodeSidebar 
+      <NodeSidebar
         onScrollToMap={handleScrollToMap}
         onScrollToNodes={handleScrollToNodes}
         onOpenSettings={() => setShowSettings(true)}
         onOpenHistory={handleOpenHistory}
         onOpenLogs={() => setShowLogs(true)}
+        onOpenUsers={() => {}}
         onExportCSV={handleExportCSV}
         onExportHistory={handleExportHistory}
         currentUser={currentUser}
+        isAdmin={false}
         onLogout={handleLogout}
       />
 
       {/* FIXED: MAIN CONTENT WIDTH & SCROLLING */}
       <main className="flex-1 ml-64 h-screen overflow-y-auto overflow-x-hidden scroll-smooth flex flex-col min-w-0">
-        
+
         {connectionStatus === 'error' && (
           <div className="bg-rose-600 text-white text-center py-2 text-xs font-bold tracking-wider sticky top-0 z-20 shadow-sm animate-pulse shrink-0">
             ❌ AUTHENTICATION ERROR: HARDWARE DISCONNECTED
@@ -441,7 +472,7 @@ if (!isAuthenticated) {
             <h2 className="text-2xl font-bold text-indigo-950">System Overview</h2>
             <p className="text-sm text-slate-500 mt-1">Real-time disaster area telemetry</p>
           </div>
-          
+
           <div className="flex items-center space-x-4">
             <div className="flex items-center bg-white rounded-lg border border-slate-200 shadow-sm p-1">
               <button onClick={fetchPorts} className="p-1.5 text-slate-400 hover:text-indigo-600" disabled={connectionStatus === 'connected'}>
@@ -471,18 +502,18 @@ if (!isAuthenticated) {
         <div className="p-8 flex-1">
           {/* MAP SECTION */}
           <div ref={mapSectionRef} className="mb-10 relative z-0 pt-4">
-            <MapComponent nodes={nodes} nodeNames={nodeNames} />
+            <MapComponent nodes={processedNodes} nodeNames={nodeNames} />
           </div>
 
           <div className="grid grid-cols-4 gap-6 mb-10">
             {[
-              { label: 'Total Nodes', value: activeNodesCount.toString() },
               { label: 'Active Nodes', value: activeNodesCount.toString() },
-              { label: 'SOS Alerts', value: sosAlertsCount.toString(), isAlert: sosAlertsCount > 0 },
-              { label: 'System Status', value: connectionStatus === 'connected' ? 'ONLINE' : 'OFFLINE', isAlert: connectionStatus !== 'connected' }
+              { label: 'Motion Alerts', value: humanAlertsCount.toString(), isAlert: humanAlertsCount > 0, alertClass: 'text-orange-500 animate-pulse' },
+              { label: 'SOS Alerts', value: sosAlertsCount.toString(), isAlert: sosAlertsCount > 0, alertClass: 'text-red-600 animate-pulse' },
+              { label: 'System Status', value: connectionStatus === 'connected' ? 'ONLINE' : 'OFFLINE', isAlert: connectionStatus !== 'connected', alertClass: 'text-rose-600' }
             ].map((stat, idx) => (
               <div key={idx} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col items-center justify-center">
-                <span className={`text-3xl font-black mb-2 ${stat.isAlert && idx === 2 ? 'text-red-600 animate-pulse' : stat.label === 'System Status' && stat.value === 'ONLINE' ? 'text-emerald-500' : 'text-indigo-950'}`}>
+                <span className={`text-3xl font-black mb-2 ${stat.isAlert && stat.alertClass ? stat.alertClass : stat.label === 'System Status' && stat.value === 'ONLINE' ? 'text-emerald-500' : 'text-indigo-950'}`}>
                   {stat.value}
                 </span>
                 <span className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">{stat.label}</span>
@@ -499,15 +530,21 @@ if (!isAuthenticated) {
                 <p className="font-semibold text-lg text-slate-700">Hardware Link Offline</p>
                 <p className="text-sm mt-1">Select a valid peripheral and connect.</p>
               </div>
-            ) : nodes.length === 0 ? (
+            ) : processedNodes.length === 0 ? (
               <div className="text-center py-12 bg-white rounded-2xl border border-slate-200 shadow-sm text-slate-500">
                 <svg className="w-10 h-10 mx-auto text-indigo-300 mb-3 animate-pulse" fill="none" stroke="currentColor" viewBox="0 0 24 24"><path strokeLinecap="round" strokeLinejoin="round" strokeWidth={1.5} d="M8.111 16.404a5.5 5.5 0 017.778 0M12 20h.01m-7.08-7.071c3.904-3.905 10.236-3.905 14.141 0M1.394 9.393c5.857-5.857 15.355-5.857 21.213 0" /></svg>
                 <p className="font-semibold text-lg text-slate-700">Awaiting Remote LoRa Signal...</p>
               </div>
             ) : (
               <div className="grid grid-cols-2 gap-6">
-                {nodes.map((node) => (
-                  <NodeCard key={node.id} node={{...node, id: nodeNames[node.id] ? `${nodeNames[node.id]} (${node.id})` : node.id}} />
+                {processedNodes.map((node) => (
+                  <NodeCard
+                    key={node.id}
+                    node={{ ...node, id: nodeNames[node.id] ? `${nodeNames[node.id]} (${node.id})` : node.id }}
+                    rawId={node.id}
+                    sensorStates={sensorStates[node.id] || { radar: true, water: true }}
+                    onToggleSensor={handleToggleSensor}
+                  />
                 ))}
               </div>
             )}

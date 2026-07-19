@@ -7,7 +7,7 @@ interface AlertBannerProps {
 
 function AlertBanner({ active, sosNodes }: AlertBannerProps): React.JSX.Element {
   if (active) {
-    const nodeIds = sosNodes.map((node) => node.nodeId).join(', ')
+    const nodeIds = sosNodes.map((node) => node.id).join(', ')
 
     return (
       <header

@@ -30,17 +30,25 @@ class SerialManager {
       return this.disconnect();
     });
 
+    ipcMain.handle('send-serial-command', async (_event, command: string) => {
+      if (this.port && this.port.isOpen) {
+        this.port.write(command + '\n');
+        return true;
+      }
+      return false;
+    });
+
     ipcMain.handle('save-settings', (_e, data) => {
       fs.writeFileSync(this.settingsFile, JSON.stringify(data));
     });
 
     ipcMain.handle('get-settings', () => {
-      try { return fs.existsSync(this.settingsFile) ? JSON.parse(fs.readFileSync(this.settingsFile, 'utf-8')) : {}; } 
+      try { return fs.existsSync(this.settingsFile) ? JSON.parse(fs.readFileSync(this.settingsFile, 'utf-8')) : {}; }
       catch { return {}; }
     });
 
     ipcMain.handle('get-history', () => {
-      try { return fs.existsSync(this.historyFile) ? JSON.parse(fs.readFileSync(this.historyFile, 'utf-8')) : []; } 
+      try { return fs.existsSync(this.historyFile) ? JSON.parse(fs.readFileSync(this.historyFile, 'utf-8')) : []; }
       catch { return []; }
     });
 
@@ -67,7 +75,7 @@ class SerialManager {
 
       this.port.on('open', () => {
         console.log(`Port ${portPath} opened. Waiting for ESP32 boot sequence...`);
-        
+
         setTimeout(() => {
           this.pingInterval = setInterval(() => {
             if (this.port && this.port.isOpen) {
@@ -87,7 +95,7 @@ class SerialManager {
       this.parser.on('data', (line: string) => {
         line = line.trim();
         if (!line) return;
-        
+
         if (line.includes("GATEWAY_PONG")) {
           if (this.verificationTimeout) clearTimeout(this.verificationTimeout);
           if (this.pingInterval) clearInterval(this.pingInterval);
@@ -106,7 +114,7 @@ class SerialManager {
 
           if (parsedData.sosStatus === "SOS") {
             try {
-              let history = [];
+              let history: { id: number; time: string; node: string; lat: number; lng: number }[] = [];
               if (fs.existsSync(this.historyFile)) {
                 history = JSON.parse(fs.readFileSync(this.historyFile, 'utf-8'));
               }
@@ -144,7 +152,7 @@ class SerialManager {
     const mainWindow = BrowserWindow.getAllWindows()[0];
     if (this.verificationTimeout) clearTimeout(this.verificationTimeout);
     if (this.pingInterval) clearInterval(this.pingInterval);
-    
+
     if (this.port && this.port.isOpen) {
       this.port.write("GATEWAY_DISCONNECT\n", () => {
         this.port?.close(() => {

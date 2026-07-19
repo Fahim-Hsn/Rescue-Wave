@@ -1,8 +1,8 @@
 // File Location: OfflineApp/src/renderer/src/components/MapComponent.tsx
-import React, { useEffect } from 'react';
+import { useEffect } from 'react';
 import { MapContainer, TileLayer, Marker, Popup, useMap, LayersControl } from 'react-leaflet';
 import L from 'leaflet';
-import { NodeTelemetry } from '../../shared/gateway-node';
+import { NodeTelemetry } from '../../../shared/gateway-node';
 
 import icon from 'leaflet/dist/images/marker-icon.png';
 import iconShadow from 'leaflet/dist/images/marker-shadow.png';
@@ -24,6 +24,15 @@ const SOSIcon = L.icon({
   className: 'hue-rotate-[150deg] brightness-90', 
 });
 
+const HumanIcon = L.icon({
+  iconUrl: icon,
+  shadowUrl: iconShadow,
+  iconSize: [25, 41],
+  iconAnchor: [12, 41],
+  popupAnchor: [1, -34],
+  className: 'hue-rotate-[320deg] brightness-105 saturate-150', // Makes it orange-ish
+});
+
 const GatewayIcon = L.icon({
   iconUrl: icon,
   shadowUrl: iconShadow,
@@ -35,7 +44,7 @@ const GatewayIcon = L.icon({
 
 L.Marker.prototype.options.icon = DefaultIcon;
 
-function MapController({ nodes, baseCoords }: { nodes: NodeTelemetry[], baseCoords: [number, number] }) {
+function MapController({ nodes }: { nodes: NodeTelemetry[] }) {
   const map = useMap();
   
   useEffect(() => {
@@ -70,7 +79,7 @@ export default function MapComponent({ nodes, nodeNames }: MapProps) {
         zoom={16} 
         style={{ height: '100%', width: '100%', zIndex: 0 }}
       >
-        <MapController nodes={nodes} baseCoords={baiustCoords} />
+        <MapController nodes={nodes} />
         
         <LayersControl position="topright">
           
@@ -113,7 +122,7 @@ export default function MapComponent({ nodes, nodeNames }: MapProps) {
             <Marker 
               key={node.id} 
               position={[node.lat, node.lng]}
-              icon={node.sosStatus === 'SOS' ? SOSIcon : DefaultIcon}
+              icon={node.sosStatus === 'SOS' ? SOSIcon : node.sosStatus === 'HUMAN' ? HumanIcon : DefaultIcon}
             >
               <Popup className="rounded-xl font-sans min-w-[150px]">
                 <div className="text-center">
@@ -123,8 +132,8 @@ export default function MapComponent({ nodes, nodeNames }: MapProps) {
                   {hasCustomName && (
                     <span className="text-[10px] text-slate-400 block mb-1">({node.id})</span>
                   )}
-                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${node.sosStatus === 'SOS' ? 'bg-red-100 text-red-700' : 'bg-emerald-100 text-emerald-700'}`}>
-                    {node.sosStatus === 'SOS' ? 'SOS TRIGGERED' : 'SAFE'}
+                  <span className={`px-2 py-0.5 rounded text-[10px] font-bold ${node.sosStatus === 'SOS' ? 'bg-red-100 text-red-700' : node.sosStatus === 'HUMAN' ? 'bg-orange-100 text-orange-700' : 'bg-emerald-100 text-emerald-700'}`}>
+                    {node.sosStatus === 'SOS' ? 'SOS TRIGGERED' : node.sosStatus === 'HUMAN' ? 'MOTION DETECTED' : 'SAFE'}
                   </span>
                   <div className="mt-3 text-xs text-slate-600 text-left bg-slate-50 p-2 rounded border border-slate-100">
                     <p className="mb-1">Temp: <b className="text-slate-800">{node.temperature}°C</b></p>

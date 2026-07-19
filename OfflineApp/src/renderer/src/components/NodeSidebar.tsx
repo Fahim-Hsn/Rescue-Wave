@@ -1,5 +1,5 @@
 // File Location: OfflineApp/src/renderer/src/components/NodeSidebar.tsx
-import React, { useState } from 'react';
+import { useState } from 'react';
 
 interface SidebarProps {
   onScrollToMap: () => void;

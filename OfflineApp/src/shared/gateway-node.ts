@@ -7,8 +7,8 @@ export interface NodeTelemetry {
   temperature: number;
   humidity: number;
   waterLevel: number;
-  motionDetected: boolean;
-  sosStatus: 'OK' | 'SOS';
+  battery: number;
+  sosStatus: 'SAFE' | 'SOS' | 'HUMAN';
   lastSeen: number; // Timestamp
 }
 
@@ -19,10 +19,8 @@ export interface SystemStats {
   offlineNodes: number;
 }
 
-// --- Added to fix the build error with serial-manager.ts ---
-
 // Alias to match what Cursor generated
-export interface GatewayNodePayload extends NodeTelemetry {} 
+export interface GatewayNodePayload extends NodeTelemetry { }
 
 export interface SerialPortSummary {
   path: string;
@@ -30,13 +28,22 @@ export interface SerialPortSummary {
 }
 
 // Function to parse the comma-separated string from ESP32
-// Format: NODE_ID,LATITUDE,LONGITUDE,TEMPERATURE,HUMIDITY,WATER_LEVEL,RADAR_MOTION,SOS_STATUS
+// Format: NodeID,Latitude,Longitude,Temperature,Humidity,WaterLevel,Battery,Status
 export function parseGatewayLine(line: string): GatewayNodePayload | null {
   try {
     const parts = line.trim().split(',');
-    
+
     // We expect at least 8 parts based on our payload format
     if (parts.length < 8) return null;
+
+    const statusMap: Record<string, 'SAFE' | 'SOS' | 'HUMAN'> = {
+      'SAFE': 'SAFE',
+      'SOS': 'SOS',
+      'HUMAN': 'HUMAN'
+    };
+
+    const parsedStatus = parts[7].trim().toUpperCase();
+    const sosStatus = statusMap[parsedStatus] || 'SAFE';
 
     return {
       id: parts[0],
@@ -45,8 +52,8 @@ export function parseGatewayLine(line: string): GatewayNodePayload | null {
       temperature: parseFloat(parts[3]),
       humidity: parseFloat(parts[4]),
       waterLevel: parseInt(parts[5], 10),
-      motionDetected: parseInt(parts[6], 10) === 1,
-      sosStatus: parts[7].trim() === 'SOS' ? 'SOS' : 'OK',
+      battery: parseInt(parts[6], 10),
+      sosStatus,
       lastSeen: Date.now(),
     };
   } catch (error) {
