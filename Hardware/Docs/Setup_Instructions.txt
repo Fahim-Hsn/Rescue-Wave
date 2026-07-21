@@ -1,0 +1,2 @@
+Setup Instructions
+লাইব্রেরিগুলোর নাম (যেমন: LoRa, Adafruit GFX) লিখে রাখার জন্য
