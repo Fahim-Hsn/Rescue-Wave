@@ -1,7 +1,7 @@
 # RescueWave: Offline Disaster Telemetry & Management System
 
 ## Overview
-RescueWave is a localized, fully offline disaster management and telemetry dashboard developed for the Bangladesh Army International University of Science and Technology (BAIUST). Designed to operate entirely independently of cellular and internet networks, the system relies on Long-Range (LoRa) radio frequency communication to bridge remote disaster zones with a central command dashboard. 
+RescueWave is a localized, fully offline disaster management and telemetry dashboard developed. Designed to operate entirely independently of cellular and internet networks, the system relies on Long-Range (LoRa) radio frequency communication to bridge remote disaster zones with a central command dashboard. 
 
 The system collects environmental data and emergency signals from field-deployed ESP32 hardware nodes, triggers local physical alarms at the gateway, and streams real-time updates to an interactive desktop command center. It also supports bidirectional communication, allowing operators to send remote commands back to field nodes.
 
@@ -129,5 +129,7 @@ RescueWave_Project/
 
 ## Author & Project Details
 *   **Developer:** Fahim Hossain (ID: 1118044)
+*   **Developer:** Jobayer Ahmed (ID: 1118029)
+*   **Developer:** Swaban Rahman Daniel (ID: 1118039)
 *   **Academic Cohort:** 18th Batch, Department of Computer Science and Engineering (CSE)
 *   **Institution:** Bangladesh Army International University of Science and Technology (BAIUST)
