@@ -18,6 +18,7 @@ declare global {
       saveSettings: (settings: any) => Promise<void>;
       getSettings: () => Promise<any>;
       getHistory: () => Promise<any[]>;
+      getHumanHistory: () => Promise<any[]>;
     };
   }
 }
@@ -44,6 +45,8 @@ export default function App() {
   const [nodeNames, setNodeNames] = useState<Record<string, string>>({});
   const [showHistory, setShowHistory] = useState(false);
   const [historyData, setHistoryData] = useState<any[]>([]);
+  const [showHumanHistory, setShowHumanHistory] = useState(false);
+  const [humanHistoryData, setHumanHistoryData] = useState<any[]>([]);
   const [showSettings, setShowSettings] = useState(false);
   const [audioAlerts, setAudioAlerts] = useState(true);
   const [sensorStates, setSensorStates] = useState<Record<string, { radar: boolean, water: boolean }>>({});
@@ -157,6 +160,12 @@ export default function App() {
     setShowHistory(true);
   };
 
+  const handleOpenHumanHistory = async () => {
+    const data = await window.api.getHumanHistory();
+    setHumanHistoryData(data);
+    setShowHumanHistory(true);
+  };
+
   const handleExportCSV = async () => {
     if (nodes.length === 0) return alert("No active nodes to export.");
     let csv = "Time,Node ID,Custom Name,Status,Latitude,Longitude,Temperature(C),Water Level(cm)\n";
@@ -176,6 +185,17 @@ export default function App() {
     });
     const success = await window.api.exportCsv(csv, `RescueWave_SOS_History_${Date.now()}.csv`);
     if (success) addSystemLog(currentUser, "Exported SOS History CSV.");
+  };
+
+  const handleExportHumanHistory = async () => {
+    const data = await window.api.getHumanHistory();
+    if (!data || data.length === 0) return alert("No human detection history to export.");
+    let csv = "Timestamp,Node ID,Latitude,Longitude\n";
+    data.forEach(h => {
+      csv += `"${h.time}","${h.node}","${h.lat}","${h.lng}"\n`;
+    });
+    const success = await window.api.exportCsv(csv, `RescueWave_Human_History_${Date.now()}.csv`);
+    if (success) addSystemLog(currentUser, "Exported Human Detection History CSV.");
   };
 
   const handleSaveNodeName = (id: string, newName: string) => {
@@ -371,7 +391,7 @@ export default function App() {
         <div className="fixed inset-0 bg-red-950/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
           <div className="bg-white rounded-2xl w-[700px] max-h-[80vh] flex flex-col shadow-2xl overflow-hidden">
             <div className="bg-red-600 px-6 py-4 flex justify-between items-center">
-              <h2 className="text-white font-bold text-lg flex items-center">🚨 SOS Alert History (Local DB)</h2>
+              <h2 className="text-white font-bold text-lg flex items-center">SOS Alert History</h2>
               <button onClick={() => setShowHistory(false)} className="text-red-200 hover:text-white text-xl">✕</button>
             </div>
             <div className="p-0 overflow-y-auto flex-1">
@@ -391,6 +411,42 @@ export default function App() {
                       <tr key={h.id || i} className="border-b border-slate-100 text-sm hover:bg-slate-50">
                         <td className="py-4 px-6 font-semibold text-slate-700">{h.time}</td>
                         <td className="py-4 px-6 font-black text-red-600">{h.node}</td>
+                        <td className="py-4 px-6 text-slate-500 font-mono text-xs">{h.lat}, {h.lng}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              )}
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* HUMAN DETECTION HISTORY MODAL */}
+      {showHumanHistory && (
+        <div className="fixed inset-0 bg-orange-950/60 z-50 flex items-center justify-center p-4 backdrop-blur-sm">
+          <div className="bg-white rounded-2xl w-[700px] max-h-[80vh] flex flex-col shadow-2xl overflow-hidden">
+            <div className="bg-orange-500 px-6 py-4 flex justify-between items-center">
+              <h2 className="text-white font-bold text-lg flex items-center">Human Detected History</h2>
+              <button onClick={() => setShowHumanHistory(false)} className="text-orange-200 hover:text-white text-xl">✕</button>
+            </div>
+            <div className="p-0 overflow-y-auto flex-1">
+              {humanHistoryData.length === 0 ? (
+                <p className="text-center text-slate-500 py-10">No human detection events recorded yet.</p>
+              ) : (
+                <table className="w-full text-left border-collapse">
+                  <thead className="bg-slate-50 sticky top-0">
+                    <tr className="border-b border-slate-200 text-xs uppercase text-slate-500 tracking-wider">
+                      <th className="py-3 px-6">Timestamp</th>
+                      <th className="py-3 px-6">Node ID</th>
+                      <th className="py-3 px-6">Coordinates (Lat, Lng)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {humanHistoryData.map((h, i) => (
+                      <tr key={h.id || i} className="border-b border-slate-100 text-sm hover:bg-slate-50">
+                        <td className="py-4 px-6 font-semibold text-slate-700">{h.time}</td>
+                        <td className="py-4 px-6 font-black text-orange-600">{h.node}</td>
                         <td className="py-4 px-6 text-slate-500 font-mono text-xs">{h.lat}, {h.lng}</td>
                       </tr>
                     ))}
@@ -448,10 +504,12 @@ export default function App() {
         onScrollToNodes={handleScrollToNodes}
         onOpenSettings={() => setShowSettings(true)}
         onOpenHistory={handleOpenHistory}
+        onOpenHumanHistory={handleOpenHumanHistory}
         onOpenLogs={() => setShowLogs(true)}
-        onOpenUsers={() => {}}
+        onOpenUsers={() => { }}
         onExportCSV={handleExportCSV}
         onExportHistory={handleExportHistory}
+        onExportHumanHistory={handleExportHumanHistory}
         currentUser={currentUser}
         isAdmin={false}
         onLogout={handleLogout}

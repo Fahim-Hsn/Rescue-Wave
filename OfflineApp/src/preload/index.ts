@@ -18,7 +18,8 @@ if (process.contextIsolated) {
       exportCsv: (data: string, filename: string) => ipcRenderer.invoke('export-csv', data, filename),
       saveSettings: (settings: any) => ipcRenderer.invoke('save-settings', settings),
       getSettings: () => ipcRenderer.invoke('get-settings'),
-      getHistory: () => ipcRenderer.invoke('get-history')
+      getHistory: () => ipcRenderer.invoke('get-history'),
+      getHumanHistory: () => ipcRenderer.invoke('get-human-history')
     });
   } catch (error) {
     console.error(error);

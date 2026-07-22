@@ -10,7 +10,7 @@ interface NodeCardProps {
 export default function NodeCard({ node, rawId, sensorStates, onToggleSensor }: NodeCardProps) {
   const isSOS = node.sosStatus === 'SOS';
   const isHuman = node.sosStatus === 'HUMAN' && !isSOS;
-  
+
   // Status styling logic
   let statusIcon = '📡';
   let iconBg = 'bg-indigo-50';
@@ -86,13 +86,13 @@ export default function NodeCard({ node, rawId, sensorStates, onToggleSensor }: 
 
       {/* Sensor Controls */}
       <div className="border-t border-slate-100 pt-4 flex space-x-3">
-        <button 
+        <button
           onClick={() => onToggleSensor(rawId, 'RADAR', sensorStates.radar)}
           className={`flex-1 py-1.5 rounded text-xs font-bold transition-colors ${sensorStates.radar ? 'bg-indigo-100 text-indigo-700 hover:bg-indigo-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
         >
           Radar: {sensorStates.radar ? 'ON' : 'OFF'}
         </button>
-        <button 
+        <button
           onClick={() => onToggleSensor(rawId, 'WATER', sensorStates.water)}
           className={`flex-1 py-1.5 rounded text-xs font-bold transition-colors ${sensorStates.water ? 'bg-blue-100 text-blue-700 hover:bg-blue-200' : 'bg-slate-100 text-slate-500 hover:bg-slate-200'}`}
         >

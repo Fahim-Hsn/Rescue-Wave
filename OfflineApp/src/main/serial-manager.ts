@@ -14,6 +14,7 @@ class SerialManager {
 
   // Local Database Paths
   private get historyFile() { return path.join(app.getPath('userData'), 'sos_history.json'); }
+  private get humanHistoryFile() { return path.join(app.getPath('userData'), 'human_history.json'); }
   private get settingsFile() { return path.join(app.getPath('userData'), 'node_settings.json'); }
 
   public registerIpcHandlers() {
@@ -49,6 +50,11 @@ class SerialManager {
 
     ipcMain.handle('get-history', () => {
       try { return fs.existsSync(this.historyFile) ? JSON.parse(fs.readFileSync(this.historyFile, 'utf-8')) : []; }
+      catch { return []; }
+    });
+
+    ipcMain.handle('get-human-history', () => {
+      try { return fs.existsSync(this.humanHistoryFile) ? JSON.parse(fs.readFileSync(this.humanHistoryFile, 'utf-8')) : []; }
       catch { return []; }
     });
 
@@ -129,6 +135,26 @@ class SerialManager {
               fs.writeFileSync(this.historyFile, JSON.stringify(history));
             } catch (err) {
               console.error("Failed to save SOS history:", err);
+            }
+          }
+
+          if (parsedData.sosStatus === "HUMAN") {
+            try {
+              let history: { id: number; time: string; node: string; lat: number; lng: number }[] = [];
+              if (fs.existsSync(this.humanHistoryFile)) {
+                history = JSON.parse(fs.readFileSync(this.humanHistoryFile, 'utf-8'));
+              }
+              history.unshift({
+                id: Date.now(),
+                time: new Date().toLocaleString(),
+                node: parsedData.id,
+                lat: parsedData.lat,
+                lng: parsedData.lng
+              });
+              if (history.length > 100) history.pop();
+              fs.writeFileSync(this.humanHistoryFile, JSON.stringify(history));
+            } catch (err) {
+              console.error("Failed to save Human Detection history:", err);
             }
           }
         }
