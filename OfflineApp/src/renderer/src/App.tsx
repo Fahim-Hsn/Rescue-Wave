@@ -42,11 +42,15 @@ export default function App() {
   const [selectedPort, setSelectedPort] = useState<string>('');
   const [connectionStatus, setConnectionStatus] = useState<'disconnected' | 'connecting' | 'connected' | 'error'>('disconnected');
 
+  const [controlNodeLocation, setControlNodeLocation] = useState<{ lat: number, lng: number }>({ lat: 23.4622, lng: 91.1370 });
+
   const [nodeNames, setNodeNames] = useState<Record<string, string>>({});
   const [showHistory, setShowHistory] = useState(false);
   const [historyData, setHistoryData] = useState<any[]>([]);
   const [showHumanHistory, setShowHumanHistory] = useState(false);
   const [humanHistoryData, setHumanHistoryData] = useState<any[]>([]);
+  const [totalSOSCount, setTotalSOSCount] = useState(0);
+  const [totalMotionCount, setTotalMotionCount] = useState(0);
   const [showSettings, setShowSettings] = useState(false);
   const [audioAlerts, setAudioAlerts] = useState(true);
   const [sensorStates, setSensorStates] = useState<Record<string, { radar: boolean, water: boolean }>>({});
@@ -60,14 +64,29 @@ export default function App() {
   const nodesSectionRef = useRef<HTMLDivElement>(null);
 
   // --- INITIALIZATION & EFFECTS ---
+
+  const fetchHistoryTotals = async () => {
+    const sos = await window.api.getHistory();
+    const human = await window.api.getHumanHistory();
+    setTotalSOSCount(sos?.length || 0);
+    setTotalMotionCount(human?.length || 0);
+  };
+
   useEffect(() => {
     const savedLogs = localStorage.getItem('rescueWaveLogs');
     if (savedLogs) setSystemLogs(JSON.parse(savedLogs));
 
+    const savedLoc = localStorage.getItem('controlNodeLocation');
+    if (savedLoc) setControlNodeLocation(JSON.parse(savedLoc));
+
     fetchPorts();
     window.api.getSettings().then(data => setNodeNames(data || {}));
+    fetchHistoryTotals();
 
     window.api.onSerialData((newData: NodeTelemetry) => {
+      if (newData.sosStatus === 'SOS' || newData.sosStatus === 'HUMAN') {
+        fetchHistoryTotals();
+      }
       setNodes((prevNodes) => {
         const existingIndex = prevNodes.findIndex((n) => n.id === newData.id);
         if (existingIndex !== -1) {
@@ -204,6 +223,13 @@ export default function App() {
     setNodeNames(updated);
     window.api.saveSettings(updated);
     addSystemLog(currentUser, `Changed node ${id} name from "${oldName}" to "${newName}".`);
+  };
+
+  const handleSaveControlNodeLocation = (lat: number, lng: number) => {
+    const loc = { lat, lng };
+    setControlNodeLocation(loc);
+    localStorage.setItem('controlNodeLocation', JSON.stringify(loc));
+    addSystemLog(currentUser, `Updated Control Node Location to ${lat}, ${lng}`);
   };
 
   const handleClearDashboard = () => {
@@ -360,6 +386,30 @@ export default function App() {
                     <p className="text-xs text-slate-500">Removes all currently visible nodes</p>
                   </div>
                   <button onClick={handleClearDashboard} className="px-3 py-1.5 bg-rose-100 text-rose-700 font-bold text-xs rounded hover:bg-rose-200">Clear Data</button>
+                </div>
+              </div>
+              <div className="mb-8">
+                <h3 className="text-xs font-bold text-slate-400 uppercase tracking-wider mb-4 border-b pb-2">Control Node Location</h3>
+                <div className="flex justify-between items-center mb-3 bg-slate-50 p-3 rounded-lg border border-slate-200">
+                  <span className="font-bold text-indigo-950 text-sm">Operation Node Location</span>
+                  <div className="flex space-x-2">
+                    <input
+                      type="number"
+                      step="any"
+                      placeholder="Lat"
+                      value={controlNodeLocation.lat}
+                      onChange={(e) => handleSaveControlNodeLocation(parseFloat(e.target.value) || 0, controlNodeLocation.lng)}
+                      className="border border-slate-300 rounded-md px-3 py-1.5 w-24 text-sm focus:outline-indigo-500 focus:border-indigo-500 font-semibold text-slate-700"
+                    />
+                    <input
+                      type="number"
+                      step="any"
+                      placeholder="Lng"
+                      value={controlNodeLocation.lng}
+                      onChange={(e) => handleSaveControlNodeLocation(controlNodeLocation.lat, parseFloat(e.target.value) || 0)}
+                      className="border border-slate-300 rounded-md px-3 py-1.5 w-24 text-sm focus:outline-indigo-500 focus:border-indigo-500 font-semibold text-slate-700"
+                    />
+                  </div>
                 </div>
               </div>
               <div>
@@ -560,7 +610,7 @@ export default function App() {
         <div className="p-8 flex-1">
           {/* MAP SECTION */}
           <div ref={mapSectionRef} className="mb-10 relative z-0 pt-4">
-            <MapComponent nodes={processedNodes} nodeNames={nodeNames} />
+            <MapComponent nodes={processedNodes} nodeNames={nodeNames} controlNodeLocation={controlNodeLocation} />
           </div>
 
           <div className="grid grid-cols-4 gap-6 mb-10">
@@ -581,6 +631,21 @@ export default function App() {
 
           {/* NODES SECTION */}
           <div ref={nodesSectionRef} className="pt-4 pb-20">
+            {/* HISTORY TOTALS CARDS */}
+            <div className="grid grid-cols-2 gap-6 mb-8">
+              {[
+                { label: 'Total SOS History', value: totalSOSCount.toString(), textClass: 'text-red-600' },
+                { label: 'Total Motion History', value: totalMotionCount.toString(), textClass: 'text-orange-500' }
+              ].map((stat, idx) => (
+                <div key={idx} className="bg-white rounded-2xl border border-slate-200 p-6 shadow-sm flex flex-col items-center justify-center">
+                  <span className={`text-3xl font-black mb-2 ${stat.textClass}`}>
+                    {stat.value}
+                  </span>
+                  <span className="text-[11px] font-bold text-slate-400 tracking-wider uppercase">{stat.label}</span>
+                </div>
+              ))}
+            </div>
+
             <h3 className="text-sm font-bold text-indigo-900 mb-4 tracking-wide uppercase">Telemetry Streams</h3>
             {connectionStatus !== 'connected' ? (
               <div className="text-center py-12 bg-white rounded-2xl border border-dashed border-slate-300 text-slate-500">
